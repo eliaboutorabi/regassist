@@ -11,8 +11,7 @@
 	import {
 		VerityRobot,
 		attachVerityPointerControls,
-		createVerityStudioLights,
-		frameVerityCamera
+		createVerityStudioLights
 	} from '$lib/robot/index.js';
 	import { CHARACTERS, type CharacterId } from '$lib/voices';
 	import { printerEnvelope } from './printer-envelope.js';
@@ -42,6 +41,7 @@
 	let robot: VerityRobot | null = null;
 	let renderer: THREE.WebGLRenderer | null = null;
 	let scene: THREE.Scene | null = null;
+	let camera: THREE.PerspectiveCamera | null = null;
 	let detachPointer: (() => void) | null = null;
 	/** Flips once the scene exists, which is what gates the character effect. */
 	let ready = $state(false);
@@ -55,6 +55,52 @@
 	 * relying on how prop access behaves inside a captured callback.
 	 */
 	const inputs = { level: 0, audible: false, printing: false };
+
+	/**
+	 * How the camera is placed.
+	 *
+	 * The vendored `frameVerityCamera` puts the camera at a fixed distance, which
+	 * is right for the square-ish phone frame it was written for and wrong
+	 * everywhere else — in a tall column it crops her legs, in a short band it
+	 * crops her head. Measuring the character once and fitting to those bounds
+	 * makes the framing correct at any shape, and leaves room above her for the
+	 * receipt, which grows as she talks.
+	 */
+	let bounds: { center: THREE.Vector3; size: THREE.Vector3 } | null = null;
+
+	/** Breathing room around the character, as a multiple of the fitted distance. */
+	const FRAME_PADDING = 1.14;
+
+	function measure(character: VerityRobot): void {
+		const box = new THREE.Box3().setFromObject(character.object3d);
+		const size = box.getSize(new THREE.Vector3());
+		const center = box.getCenter(new THREE.Vector3());
+
+		// Headroom for the paper, and a nudge down so she sits slightly low in
+		// frame — which reads as standing on something rather than floating.
+		const headroom = size.y * 0.3;
+		size.y += headroom;
+		center.y += headroom * 0.32;
+
+		bounds = { center, size };
+	}
+
+	function fitCamera(camera: THREE.PerspectiveCamera, aspect: number): void {
+		camera.aspect = aspect;
+		if (!bounds) {
+			camera.updateProjectionMatrix();
+			return;
+		}
+
+		const { center, size } = bounds;
+		const halfFov = (camera.fov * Math.PI) / 360;
+		const forHeight = size.y / 2 / Math.tan(halfFov);
+		const forWidth = size.x / 2 / Math.tan(halfFov) / aspect;
+
+		camera.position.set(center.x, center.y, center.z + Math.max(forHeight, forWidth) * FRAME_PADDING);
+		camera.lookAt(center);
+		camera.updateProjectionMatrix();
+	}
 
 	$effect(() => {
 		inputs.level = audioLevel;
@@ -95,8 +141,8 @@
 		if (!canvas) return;
 
 		const world = new THREE.Scene();
-		const camera = new THREE.PerspectiveCamera(28, 1, 0.1, 100);
-		frameVerityCamera(camera);
+		const view = new THREE.PerspectiveCamera(30, 1, 0.1, 100);
+		camera = view;
 		world.add(createVerityStudioLights());
 		scene = world;
 
@@ -130,7 +176,7 @@
 				return;
 			}
 			gl.setSize(width, height, false);
-			frameVerityCamera(camera, width / height);
+			fitCamera(view, width / height);
 		};
 
 		const animate = (now: number) => {
@@ -149,7 +195,7 @@
 				}
 				robot.update(now / 1000, delta);
 			}
-			gl.render(world, camera);
+			gl.render(world, view);
 		};
 
 		frame = requestAnimationFrame(animate);
@@ -164,6 +210,8 @@
 			gl.dispose();
 			renderer = null;
 			scene = null;
+			camera = null;
+			bounds = null;
 			ready = false;
 		};
 	});
@@ -177,6 +225,13 @@
 		scene.add(next.object3d);
 		robot = next;
 		detachPointer = attachVerityPointerControls(canvas, next);
+
+		// Measure before the first frame moves her, then reframe — until a
+		// character existed there was nothing to fit the camera to.
+		measure(next);
+		if (camera) {
+			fitCamera(camera, Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight));
+		}
 
 		// Anything the transport said while the scene was booting still prints.
 		for (const delta of queued.splice(0)) next.appendTranscript(delta);
@@ -219,27 +274,49 @@
 		touch-action: none;
 	}
 
-	/* A soft pool of light that warms slightly while Verity is speaking. */
+	/*
+	 * A pool of light on the ground rather than a panel behind her: warm, wide,
+	 * and slightly stronger while she is speaking.
+	 */
 	.glow {
 		position: absolute;
-		inset: 8% 12% 14%;
+		left: 50%;
+		bottom: 6%;
+		width: 78%;
+		height: 34%;
+		transform: translateX(-50%);
 		border-radius: 50%;
 		background: radial-gradient(
-			circle at 50% 42%,
-			color-mix(in srgb, var(--accent) 16%, white) 0%,
-			rgba(255, 255, 255, 0.55) 42%,
-			transparent 70%
+			closest-side,
+			color-mix(in srgb, var(--accent) 22%, white) 0%,
+			color-mix(in srgb, var(--accent) 8%, white) 45%,
+			transparent 78%
 		);
-		opacity: 0.55;
-		filter: blur(6px);
+		opacity: 0.5;
+		filter: blur(14px);
 		transition: opacity 600ms var(--ease);
 	}
 
+	/* The contact shadow that stops her floating in nothing. */
+	.stage::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		bottom: 9%;
+		width: 44%;
+		height: 5%;
+		transform: translateX(-50%);
+		border-radius: 50%;
+		background: radial-gradient(closest-side, rgba(18, 22, 47, 0.22), transparent 72%);
+		filter: blur(7px);
+		pointer-events: none;
+	}
+
 	.stage[data-mode='speaking'] .glow {
-		opacity: 0.95;
+		opacity: 0.9;
 	}
 
 	.stage[data-mode='listening'] .glow {
-		opacity: 0.75;
+		opacity: 0.68;
 	}
 </style>

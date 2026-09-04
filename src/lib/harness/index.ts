@@ -38,5 +38,5 @@ export {
 	type StreamEvent,
 	type ToolCallRecord
 } from './llm.js';
-export { DEFAULT_MODEL, openaiAdapter, openaiPlugin, PREFERRED_MODELS } from './openai.js';
+export { DEFAULT_MODEL, openaiAdapter, openaiPlugin, selectChatModels } from './openai.js';
 export { AgentService, agentPlugin, type AgentEvent, type AgentRunOptions } from './agent.js';

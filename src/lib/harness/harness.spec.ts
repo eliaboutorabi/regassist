@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Context } from './context.js';
 import { SchemaError, parameterJsonSchema, validateArgs, validateValue } from './schema.js';
 import { ToolRegistry, defineTool, toolsPlugin } from './tools.js';
+import { selectChatModels } from './openai.js';
 
 describe('Context', () => {
 	it('provides services under a stable key and unwinds them on dispose', async () => {
@@ -222,5 +223,59 @@ describe('ToolRegistry', () => {
 		expect(registry.presentCall('echo', { text: 'hi' })).toEqual({ card: 'generic', title: 'hi' });
 		expect(registry.presentCall('echo', { text: 42 })).toBeUndefined();
 		ctx.dispose();
+	});
+});
+
+describe('selectChatModels', () => {
+	const available = [
+		'gpt-6-astra',
+		'gpt-5.6-luna',
+		'gpt-5.5',
+		'gpt-5.4',
+		'gpt-5.4-mini',
+		'gpt-5.4-2026-03-05',
+		'gpt-4.1',
+		'o3',
+		'gpt-realtime-2',
+		'gpt-audio-mini',
+		'text-embedding-3-large',
+		'gpt-5.1-codex',
+		'gpt-4o-mini-tts',
+		'dall-e-3',
+		'gpt-5-search-api'
+	];
+
+	it('puts the newest model first', () => {
+		expect(selectChatModels(available)[0]).toBe('gpt-6-astra');
+	});
+
+	it('drops everything that cannot hold a tool-using text conversation', () => {
+		const chosen = selectChatModels(available);
+		for (const excluded of [
+			'gpt-realtime-2',
+			'gpt-audio-mini',
+			'text-embedding-3-large',
+			'gpt-5.1-codex',
+			'gpt-4o-mini-tts',
+			'dall-e-3',
+			'gpt-5-search-api'
+		]) {
+			expect(chosen).not.toContain(excluded);
+		}
+	});
+
+	it('prefers an alias over its dated snapshot', () => {
+		const chosen = selectChatModels(available);
+		expect(chosen).toContain('gpt-5.4');
+		expect(chosen).not.toContain('gpt-5.4-2026-03-05');
+	});
+
+	it('ranks the full model above its mini at the same version', () => {
+		const chosen = selectChatModels(available);
+		expect(chosen.indexOf('gpt-5.4')).toBeLessThan(chosen.indexOf('gpt-5.4-mini'));
+	});
+
+	it('returns nothing rather than guessing when a key has no chat models', () => {
+		expect(selectChatModels(['text-embedding-3-large', 'dall-e-3'])).toEqual([]);
 	});
 });

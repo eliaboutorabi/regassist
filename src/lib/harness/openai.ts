@@ -21,20 +21,52 @@ import type { JsonValue } from './schema.js';
 
 const API_BASE = 'https://api.openai.com/v1';
 
-/** Models we surface in the picker, best-first, filtered against the key. */
-export const PREFERRED_MODELS = [
-	'gpt-5.5',
-	'gpt-5.4',
-	'gpt-5.4-mini',
-	'gpt-5.2',
-	'gpt-5.1',
-	'gpt-5',
-	'gpt-5-mini',
-	'gpt-4.1',
-	'gpt-4.1-mini'
-] as const;
-
 export const DEFAULT_MODEL = 'gpt-5.4-mini';
+
+/**
+ * Which of a key's models to offer, newest first.
+ *
+ * A hardcoded allowlist goes stale the week after it is written — the picker
+ * was still offering gpt-5.5 as its best option months after newer models had
+ * shipped, because nobody had edited the array. This works the other way
+ * round: take what the key actually reports, drop what cannot hold a
+ * tool-using text conversation, and rank the rest by version.
+ */
+const NOT_CHAT =
+	/(realtime|audio|transcribe|tts|embedding|moderation|image|dall-e|search|codex|instruct|deep-research)/;
+
+/** Dated snapshots duplicate their alias; the alias is the better default. */
+const DATED = /-\d{4}-\d{2}-\d{2}$/;
+
+function versionOf(id: string): number {
+	// "gpt-5.4-mini" → 5.4, "gpt-4.1" → 4.1, "o4-mini" → 4.
+	const gpt = /^gpt-(\d+)(?:\.(\d+))?/.exec(id);
+	if (gpt) return Number(gpt[1]) + Number(gpt[2] ?? 0) / 100;
+	const o = /^o(\d+)/.exec(id);
+	if (o) return Number(o[1]) - 1;
+	return 0;
+}
+
+/** Full models before mini before nano, so the picker's first entry is the best one. */
+function sizeRank(id: string): number {
+	if (/-nano/.test(id)) return 3;
+	if (/-mini/.test(id)) return 2;
+	if (/-pro/.test(id)) return 1;
+	return 0;
+}
+
+export function selectChatModels(available: string[], limit = 14): string[] {
+	return available
+		.filter((id) => /^(gpt-|o\d)/.test(id) && !NOT_CHAT.test(id) && !DATED.test(id))
+		.sort((a, b) => {
+			const version = versionOf(b) - versionOf(a);
+			if (version !== 0) return version;
+			const size = sizeRank(a) - sizeRank(b);
+			if (size !== 0) return size;
+			return a.localeCompare(b);
+		})
+		.slice(0, limit);
+}
 
 type ResponsesInputItem =
 	| { role: 'system' | 'user' | 'assistant'; content: { type: string; text: string }[] }

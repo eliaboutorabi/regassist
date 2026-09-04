@@ -33,6 +33,13 @@ test.describe('the key gate', () => {
 		await expect(page.getByRole('heading', { name: 'What are you checking?' })).toBeVisible();
 	});
 
+	test('hides the app controls until a key is entered', async ({ page }) => {
+		await page.goto('/');
+		await expect(page.getByRole('button', { name: 'Settings' })).toHaveCount(0);
+		await unlock(page);
+		await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
+	});
+
 	test('voice is disabled until a key is entered', async ({ page }) => {
 		await page.goto('/');
 		await expect(page.getByRole('button', { name: /voice conversation/ })).toBeDisabled();
@@ -62,7 +69,7 @@ test.describe('a conversation', () => {
 		// Markdown is rendered rather than shown as asterisks.
 		await expect(page.locator('.prose strong')).toContainText('26 CFR § 1.274-5');
 
-		const rail = page.locator('.rail-items a');
+		const rail = page.locator('.rail a');
 		await expect(rail).toHaveCount(2);
 		await expect(rail.first()).toHaveAttribute('href', /ecfr\.gov/);
 	});
@@ -72,16 +79,15 @@ test.describe('a conversation', () => {
 		await expect(page.locator('article.card')).toBeVisible();
 	});
 
-	test('start over clears the thread and the citations', async ({ page }) => {
+	test('New clears the thread and the citations', async ({ page }) => {
 		await page.getByLabel('Message Verity').fill('What substantiates travel?');
 		await page.getByRole('button', { name: 'Send message' }).click();
 		await expect(page.locator('article.card')).toBeVisible();
 
-		await page.getByRole('button', { name: 'Session settings' }).click();
-		await page.getByRole('button', { name: 'Start over' }).click();
+		await page.getByRole('button', { name: 'New' }).click();
 
 		await expect(page.getByRole('heading', { name: 'What are you checking?' })).toBeVisible();
-		await expect(page.locator('.rail-items a')).toHaveCount(0);
+		await expect(page.locator('.rail a')).toHaveCount(0);
 	});
 });
 
@@ -91,60 +97,105 @@ test.describe('documents', () => {
 		await unlock(page);
 	});
 
-	test('pasted text is listed and can be removed', async ({ page }) => {
-		await page.getByRole('button', { name: 'Add', exact: true }).click();
-		await page.getByLabel('Paste document text').fill('Client dinners are fully deductible.');
-		await page.getByRole('button', { name: 'Add text' }).click();
+	test('a long paste becomes an attachment rather than a message', async ({ page }) => {
+		const memo = `Engagement memo\n${'Client dinners are fully deductible. '.repeat(60)}`;
+		await page.getByLabel('Message Verity').focus();
+		// Pasting is the path this behaviour hangs off; typing must not trigger it.
+		await page.evaluate((text) => {
+			const field = document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label="Message Verity"]'
+			)!;
+			const data = new DataTransfer();
+			data.setData('text/plain', text);
+			field.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+		}, memo);
 
-		const entry = page.locator('.loaded li');
-		await expect(entry).toHaveCount(1);
-		await expect(entry).toContainText('Client dinners are fully deductible.');
+		const chip = page.locator('.chips li');
+		await expect(chip).toHaveCount(1);
+		await expect(chip).toContainText('Engagement memo');
+		// It became an attachment, so it did not also become the message.
+		await expect(page.getByLabel('Message Verity')).toHaveValue('');
 
 		await page.getByRole('button', { name: /^Remove / }).click();
-		await expect(page.locator('.loaded li')).toHaveCount(0);
+		await expect(page.locator('.chips li')).toHaveCount(0);
+	});
+
+	test('a short paste stays in the message', async ({ page }) => {
+		await page.getByLabel('Message Verity').focus();
+		await page.evaluate(() => {
+			const field = document.querySelector<HTMLTextAreaElement>(
+				'textarea[aria-label="Message Verity"]'
+			)!;
+			const data = new DataTransfer();
+			data.setData('text/plain', 'what about meals?');
+			field.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true }));
+		});
+		await expect(page.locator('.chips li')).toHaveCount(0);
 	});
 });
 
-test.describe('the settings popover', () => {
+test.describe('settings', () => {
 	test.beforeEach(async ({ page }) => {
 		await page.goto('/');
 		await unlock(page);
-		await page.getByRole('button', { name: 'Session settings' }).click();
+		await page.getByRole('button', { name: 'Settings' }).click();
+		await expect(page.locator('dialog[open]')).toBeVisible();
 	});
 
 	test('offers the models this key can reach', async ({ page }) => {
-		await expect(page.locator('.settings select option')).toHaveCount(2);
+		await expect(page.locator('dialog select option')).toHaveCount(2);
 		await expect(page.getByText('Realtime voice is available on this key.')).toBeVisible();
 	});
 
 	test('closes on Escape', async ({ page }) => {
 		await page.keyboard.press('Escape');
-		await expect(page.locator('.settings')).toHaveCount(0);
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
 	});
 
-	test('closes on a click outside', async ({ page }) => {
-		await page.getByRole('heading', { name: 'What are you checking?' }).click();
-		await expect(page.locator('.settings')).toHaveCount(0);
+	test('closes on the close button', async ({ page }) => {
+		await page.getByRole('button', { name: 'Close settings' }).click();
+		await expect(page.locator('dialog[open]')).toHaveCount(0);
 	});
 
-	test('forget key returns to the gate', async ({ page }) => {
-		await page.getByRole('button', { name: 'Forget key' }).click();
-		await expect(page.getByLabel('OpenAI API key')).toBeVisible();
-	});
-});
-
-test.describe('characters', () => {
-	test('switching to Rosie changes the accent', async ({ page }) => {
-		await page.goto('/');
-		await unlock(page);
-
-		await page.getByRole('button', { name: 'Rosie', exact: true }).click();
+	test('switching character changes the accent', async ({ page }) => {
+		await page.getByRole('button', { name: /Rosie/ }).click();
 		await expect(page.locator('html')).toHaveAttribute('data-character', 'rose');
 
 		const accent = await page.evaluate(() =>
 			getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
 		);
 		expect(accent).toBe('#c84f82');
+	});
+
+	test('a skill can be switched off and a new one taught', async ({ page }) => {
+		const first = page.locator('dialog .skills li').first();
+		await expect(first.locator('input[type=checkbox]')).toBeChecked();
+		await first.locator('input[type=checkbox]').uncheck();
+		await expect(first).toHaveClass(/off/);
+
+		await page.getByRole('button', { name: /Teach her something/ }).click();
+		await page.getByLabel('Skill name').fill('Flag crypto');
+		await page.getByLabel('Skill instructions').fill('Always mention basis tracking.');
+		await page.getByRole('button', { name: 'Add skill' }).click();
+
+		await expect(page.getByText('Flag crypto')).toBeVisible();
+	});
+
+	test('knowledge survives a reload', async ({ page }) => {
+		const field = page.getByPlaceholder(/Mostly S-corps/);
+		await field.fill('Vermont cheese importers, mostly.');
+		await page.keyboard.press('Escape');
+
+		await page.reload();
+		await page.getByRole('button', { name: 'Settings' }).click();
+		await expect(page.getByPlaceholder(/Mostly S-corps/)).toHaveValue(
+			'Vermont cheese importers, mostly.'
+		);
+	});
+
+	test('forget key returns to the gate', async ({ page }) => {
+		await page.getByRole('button', { name: 'Forget' }).first().click();
+		await expect(page.getByLabel('OpenAI API key')).toBeVisible();
 	});
 });
 

@@ -14,9 +14,9 @@
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import { toolSchemas } from '$lib/plugins';
-import { VOICE_INSTRUCTIONS } from '$lib/prompts';
+import { composeInstructions, VOICE_INSTRUCTIONS } from '$lib/prompts';
 import { CHARACTERS, isCharacterId, REALTIME_MODEL } from '$lib/voices';
-import { describeError, requireApiKey } from '$lib/server/request';
+import { describeError, parseBrain, requireApiKey } from '$lib/server/request';
 
 export const config = { runtime: 'nodejs22.x' };
 
@@ -25,13 +25,14 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
 	const character = isCharacterId(body.character) ? body.character : 'classic';
 	const profile = CHARACTERS[character];
+	const brain = parseBrain(body.brain);
 
 	const session = {
 		type: 'realtime',
 		model: REALTIME_MODEL,
 		output_modalities: ['audio'],
-		instructions: `${VOICE_INSTRUCTIONS}\n\n${profile.style}`,
-		tools: (await toolSchemas()).map((tool) => ({
+		instructions: `${composeInstructions(VOICE_INSTRUCTIONS, brain)}\n\n${profile.style}`,
+		tools: (await toolSchemas(brain.packs)).map((tool) => ({
 			type: 'function',
 			name: tool.name,
 			description: tool.description,

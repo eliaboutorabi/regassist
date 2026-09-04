@@ -50,6 +50,46 @@ export function parseDocuments(raw: unknown): StoredDocument[] {
 	});
 }
 
+const PACK_IDS = ['ecfr', 'federal-register', 'review'] as const;
+type PackId = (typeof PACK_IDS)[number];
+
+export interface BrainPayload {
+	knowledge: string;
+	skills: { name: string; instructions: string }[];
+	packs: PackId[];
+}
+
+const MAX_SKILLS = 24;
+
+/** Validate the knowledge and skills a client sent with its turn. */
+export function parseBrain(raw: unknown): BrainPayload {
+	const empty: BrainPayload = { knowledge: '', skills: [], packs: [...PACK_IDS] };
+	if (raw === undefined || raw === null) return empty;
+	if (typeof raw !== 'object' || Array.isArray(raw)) error(400, 'brain must be an object.');
+
+	const { knowledge, skills, packs } = raw as Record<string, unknown>;
+
+	const parsedSkills = Array.isArray(skills)
+		? skills.slice(0, MAX_SKILLS).flatMap((entry) => {
+				if (typeof entry !== 'object' || entry === null) return [];
+				const { name, instructions } = entry as Record<string, unknown>;
+				if (typeof name !== 'string' || typeof instructions !== 'string') return [];
+				if (!name.trim() || !instructions.trim()) return [];
+				return [{ name: name.slice(0, 120), instructions: instructions.slice(0, 2000) }];
+			})
+		: [];
+
+	const parsedPacks = Array.isArray(packs)
+		? PACK_IDS.filter((pack) => packs.includes(pack))
+		: [...PACK_IDS];
+
+	return {
+		knowledge: typeof knowledge === 'string' ? knowledge.slice(0, 8000) : '',
+		skills: parsedSkills,
+		packs: parsedPacks.length ? parsedPacks : ['ecfr']
+	};
+}
+
 /** Turn any thrown value into a message safe to show a user. */
 export function describeError(cause: unknown): string {
 	if (cause instanceof Error) return cause.message;

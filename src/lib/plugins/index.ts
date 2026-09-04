@@ -20,9 +20,20 @@ import { federalRegisterPlugin } from './federal-register.js';
 import { loopGuardPlugin } from './loop-guard.js';
 import { reviewPlugin } from './review.js';
 
+/** The tool-owning plugins a caller can mount. */
+export type PackId = 'ecfr' | 'federal-register' | 'review';
+
 export interface HarnessOptions {
 	/** Documents to load into the session before the first turn. */
 	documents?: StoredDocument[];
+	/**
+	 * Which tool packs to mount. Omitted means all of them.
+	 *
+	 * Switching a skill off in settings withholds the tools it owns rather than
+	 * merely asking the model not to use them — an instruction the model is
+	 * free to weigh against everything else in the prompt.
+	 */
+	packs?: readonly PackId[];
 }
 
 /**
@@ -32,17 +43,18 @@ export interface HarnessOptions {
 export async function createHarness(options: HarnessOptions = {}): Promise<Context> {
 	const ctx = new Context();
 
-	await ctx.use(
-		toolsPlugin,
-		llmPlugin,
-		documentsPlugin,
-		openaiPlugin,
-		agentPlugin,
-		ecfrPlugin,
-		federalRegisterPlugin,
-		reviewPlugin,
-		loopGuardPlugin
-	);
+	await ctx.use(toolsPlugin, llmPlugin, documentsPlugin, openaiPlugin, agentPlugin);
+
+	const packs = new Set<PackId>(options.packs ?? ['ecfr', 'federal-register', 'review']);
+	// The CFR is the whole point; a caller cannot leave the app with no way to
+	// look anything up.
+	packs.add('ecfr');
+
+	if (packs.has('ecfr')) await ctx.plugin(ecfrPlugin);
+	if (packs.has('federal-register')) await ctx.plugin(federalRegisterPlugin);
+	if (packs.has('review')) await ctx.plugin(reviewPlugin);
+
+	await ctx.plugin(loopGuardPlugin);
 
 	const documents = ctx.require<DocumentStore>('documents');
 	for (const document of options.documents ?? []) documents.put(document);
@@ -51,8 +63,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 }
 
 /** The tool schemas, for handing to a realtime session at mint time. */
-export async function toolSchemas() {
-	const ctx = await createHarness();
+export async function toolSchemas(packs?: readonly PackId[]) {
+	const ctx = await createHarness({ packs });
 	try {
 		return ctx.require<ToolRegistry>('tools').schemas();
 	} finally {

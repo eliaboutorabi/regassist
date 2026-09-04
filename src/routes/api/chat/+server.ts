@@ -8,8 +8,8 @@
 import { error, type RequestHandler } from '@sveltejs/kit';
 import { DEFAULT_MODEL, type AgentService, type ChatMessage } from '$lib/harness';
 import { createHarness } from '$lib/plugins';
-import { TEXT_INSTRUCTIONS } from '$lib/prompts';
-import { describeError, parseDocuments, requireApiKey } from '$lib/server/request';
+import { composeInstructions, TEXT_INSTRUCTIONS } from '$lib/prompts';
+import { describeError, parseBrain, parseDocuments, requireApiKey } from '$lib/server/request';
 
 export const config = { runtime: 'nodejs22.x' };
 
@@ -36,9 +36,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const messages = parseMessages(body.messages);
 	const documents = parseDocuments(body.documents);
+	const brain = parseBrain(body.brain);
 	const model = typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL;
 
-	const ctx = await createHarness({ documents });
+	const ctx = await createHarness({ documents, packs: brain.packs });
 	const agent = ctx.require<AgentService>('agent');
 	const encoder = new TextEncoder();
 
@@ -53,7 +54,10 @@ export const POST: RequestHandler = async ({ request }) => {
 
 			try {
 				for await (const event of agent.run({
-					messages: [{ role: 'system', content: TEXT_INSTRUCTIONS }, ...messages],
+					messages: [
+						{ role: 'system', content: composeInstructions(TEXT_INSTRUCTIONS, brain) },
+						...messages
+					],
 					apiKey,
 					model,
 					signal: controller.signal

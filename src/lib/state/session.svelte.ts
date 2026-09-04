@@ -10,6 +10,7 @@ import { DEFAULT_MODEL } from '$lib/harness';
 import { isCharacterId, type CharacterId } from '$lib/voices';
 
 const KEY_STORAGE = 'regassist.openai-key';
+const MISTRAL_STORAGE = 'regassist.mistral-key';
 const MODEL_STORAGE = 'regassist.model';
 const CHARACTER_STORAGE = 'regassist.character';
 
@@ -41,6 +42,15 @@ export interface ModelAvailability {
 
 class SessionState {
 	apiKey = $state<string>(read(KEY_STORAGE) ?? '');
+	/**
+	 * Optional second key, for reading a PDF.
+	 *
+	 * Highlighting a passage on the page needs to know where on the page it is,
+	 * which OpenAI's models do not report. Mistral's OCR does, so a document
+	 * with a text layer works without this and a scan or a highlighted overlay
+	 * needs it. Kept separate so the app is honest about which key buys what.
+	 */
+	mistralKey = $state<string>(read(MISTRAL_STORAGE) ?? '');
 	model = $state<string>(read(MODEL_STORAGE) ?? DEFAULT_MODEL);
 	character = $state<CharacterId>(
 		isCharacterId(read(CHARACTER_STORAGE)) ? (read(CHARACTER_STORAGE) as CharacterId) : 'classic'
@@ -52,6 +62,7 @@ class SessionState {
 	keyError = $state<string | null>(null);
 
 	readonly hasKey = $derived(this.apiKey.trim().length > 0);
+	readonly canOcr = $derived(this.mistralKey.trim().length > 0);
 
 	setKey(value: string): void {
 		this.apiKey = value.trim();
@@ -63,6 +74,16 @@ class SessionState {
 		this.availableModels = [];
 		this.keyError = null;
 		write(KEY_STORAGE, null);
+	}
+
+	forgetMistralKey(): void {
+		this.mistralKey = '';
+		write(MISTRAL_STORAGE, null);
+	}
+
+	setMistralKey(value: string): void {
+		this.mistralKey = value.trim();
+		write(MISTRAL_STORAGE, this.mistralKey || null);
 	}
 
 	setModel(value: string): void {

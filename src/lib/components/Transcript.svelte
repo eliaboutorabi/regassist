@@ -6,12 +6,15 @@
 
 	let scroller = $state<HTMLDivElement | null>(null);
 	let pinned = $state(true);
+	/** Tells the shell to draw the bar's rule once content is behind it. */
+	let scrolled = $state(false);
 
 	/** Stop yanking the view down when the reader has scrolled up to re-read. */
 	function onScroll() {
 		if (!scroller) return;
 		const distance = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
 		pinned = distance < 80;
+		scrolled = scroller.scrollTop > 6;
 	}
 
 	$effect(() => {
@@ -24,7 +27,7 @@
 	});
 </script>
 
-<div class="scroller" bind:this={scroller} onscroll={onScroll}>
+<div class="scroller" class:scrolled bind:this={scroller} onscroll={onScroll}>
 	<div class="thread">
 		{#each conversation.entries as entry (entry.id)}
 			{#if entry.kind === 'user'}

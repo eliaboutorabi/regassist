@@ -55,6 +55,8 @@ export interface VoiceStartOptions {
 	greet?: boolean;
 	/** Conversation so far, so picking up the microphone continues the thread. */
 	history?: PriorTurn[];
+	/** Knowledge, skills and the tool packs those skills need. */
+	brain?: unknown;
 }
 
 interface PendingCall {
@@ -84,6 +86,7 @@ export class VoiceSession {
 	/** Tool calls this response made, so we only follow up when it made some. */
 	#calledThisResponse = 0;
 	#documents: StoredDocument[] = [];
+	#brain: unknown = undefined;
 	#status: VoiceStatus = 'idle';
 	#muted = false;
 
@@ -115,6 +118,7 @@ export class VoiceSession {
 	async start(options: VoiceStartOptions): Promise<void> {
 		if (this.#pc) return;
 		this.#documents = options.documents;
+		this.#brain = options.brain;
 		this.#setStatus('connecting');
 
 		try {
@@ -224,7 +228,7 @@ export class VoiceSession {
 		const response = await fetch('/api/realtime', {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json', 'x-openai-key': options.apiKey },
-			body: JSON.stringify({ character: options.character })
+			body: JSON.stringify({ character: options.character, brain: options.brain })
 		});
 		const payload = (await response.json().catch(() => null)) as
 			| { clientSecret?: string; message?: string }
@@ -463,7 +467,8 @@ export class VoiceSession {
 					callId: call.callId,
 					name: call.name,
 					arguments: parsed,
-					documents: this.#documents
+					documents: this.#documents,
+					brain: this.#brain
 				})
 			});
 			const payload = (await response.json()) as {

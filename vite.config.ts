@@ -5,6 +5,13 @@ import adapter from '@sveltejs/adapter-vercel';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
+	ssr: {
+		noExternal: [
+			// Ships raw .svelte files; Vite must compile it rather than hand it to
+			// Node's ESM loader, which has no idea what a .svelte file is.
+			'@hugeicons/svelte'
+		]
+	},
 	plugins: [
 		tailwindcss(),
 		sveltekit({

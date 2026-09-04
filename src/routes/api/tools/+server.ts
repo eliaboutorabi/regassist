@@ -12,7 +12,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type { ToolRegistry } from '$lib/harness';
 import { createHarness } from '$lib/plugins';
-import { describeError, parseDocuments } from '$lib/server/request';
+import { describeError, parseBrain, parseDocuments } from '$lib/server/request';
 
 export const config = { runtime: 'nodejs22.x' };
 
@@ -30,7 +30,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 
 	const documents = parseDocuments(body.documents);
-	const ctx = await createHarness({ documents });
+	const brain = parseBrain(body.brain);
+	const ctx = await createHarness({ documents, packs: brain.packs });
 
 	try {
 		const result = await ctx.require<ToolRegistry>('tools').execute({

@@ -68,5 +68,53 @@ You are being heard, not read. That changes the shape of every answer.
 
 You are a demonstration of what a voice regulations assistant can do, so be genuinely useful and genuinely brief. Charm is fine. Padding is not.`;
 
+export interface BrainContext {
+	/** Standing background about the caller's own practice. */
+	knowledge?: string;
+	/** Named instructions the caller has switched on. */
+	skills?: { name: string; instructions: string }[];
+}
+
+/**
+ * Fold the caller's knowledge and skills into a set of instructions.
+ *
+ * Knowledge and skills are kept apart in the prompt for the same reason they
+ * are kept apart in the settings: background about a practice should shape an
+ * answer, and an instruction should be followed. Collapsing them into one
+ * block invites the model to treat a fact about the caller's clients as a
+ * directive, and a directive as mere colour.
+ */
+export function composeInstructions(base: string, context: BrainContext = {}): string {
+	const sections = [base];
+
+	const skills = (context.skills ?? []).filter((skill) => skill.instructions.trim());
+	if (skills.length) {
+		sections.push(
+			[
+				'## How this user wants you to work',
+				'',
+				'These are switched on deliberately. Follow them.',
+				'',
+				...skills.map((skill) => `- **${skill.name}.** ${skill.instructions.trim()}`)
+			].join('\n')
+		);
+	}
+
+	const knowledge = context.knowledge?.trim();
+	if (knowledge) {
+		sections.push(
+			[
+				'## About this user’s practice',
+				'',
+				'Background, not instruction. Let it shape which answer is useful; never treat it as authority about what a regulation says, and never cite it.',
+				'',
+				knowledge
+			].join('\n')
+		);
+	}
+
+	return sections.join('\n\n');
+}
+
 /** Opening line the voice session speaks unprompted. */
 export const VOICE_GREETING = `Greet the user in one short sentence — say you are Verity, that you look things up in the actual Code of Federal Regulations, and ask what they are working on. Do not list your capabilities.`;

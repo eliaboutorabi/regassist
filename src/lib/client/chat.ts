@@ -8,6 +8,8 @@ export interface ChatTurn {
 	model: string;
 	messages: { role: 'user' | 'assistant'; content: string }[];
 	documents: StoredDocument[];
+	/** Knowledge, skills and the tool packs those skills need. */
+	brain?: unknown;
 	signal?: AbortSignal;
 }
 
@@ -20,7 +22,8 @@ export async function* streamTurn(turn: ChatTurn): AsyncGenerator<AgentEvent> {
 		body: JSON.stringify({
 			messages: turn.messages,
 			documents: turn.documents,
-			model: turn.model
+			model: turn.model,
+			brain: turn.brain
 		})
 	});
 

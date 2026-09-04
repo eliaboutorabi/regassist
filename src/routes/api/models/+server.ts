@@ -7,7 +7,7 @@
  */
 
 import { error, json, type RequestHandler } from '@sveltejs/kit';
-import { DEFAULT_MODEL, openaiAdapter, PREFERRED_MODELS } from '$lib/harness';
+import { DEFAULT_MODEL, openaiAdapter, selectChatModels } from '$lib/harness';
 import { describeError, requireApiKey } from '$lib/server/request';
 import { REALTIME_MODEL } from '$lib/voices';
 
@@ -23,12 +23,13 @@ export const GET: RequestHandler = async ({ request }) => {
 		error(401, describeError(cause));
 	}
 
-	const owned = new Set(available);
-	const models = PREFERRED_MODELS.filter((model) => owned.has(model));
+	const models = selectChatModels(available);
 
 	return json({
 		models: models.length ? models : [DEFAULT_MODEL],
+		// A fast mid-size model is the right default for a conversation that
+		// makes several tool calls a turn; the picker offers the rest.
 		defaultModel: models.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : (models[0] ?? DEFAULT_MODEL),
-		realtimeAvailable: owned.has(REALTIME_MODEL)
+		realtimeAvailable: new Set(available).has(REALTIME_MODEL)
 	});
 };
