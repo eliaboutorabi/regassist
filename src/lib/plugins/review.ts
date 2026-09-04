@@ -141,7 +141,8 @@ export const reviewPlugin = {
 									'',
 									...lines,
 									'',
-									'Now verify the most significant findings against the actual regulation before summarising for the user. Do not present these as conclusions.'
+									'Now verify the most significant findings against the actual regulation before summarising for the user. Do not present these as conclusions.',
+									'If the user asked where any of this is, call highlight_document with these quotes before you start verifying — it is what they asked for, and the research is what comes after.'
 								].join('\n')
 							}
 						];

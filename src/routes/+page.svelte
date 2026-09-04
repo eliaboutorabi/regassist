@@ -10,6 +10,7 @@
 	import { onMount } from 'svelte';
 	import { Comment01Icon, Settings02Icon } from '@hugeicons/core-free-icons';
 	import Composer from '$lib/components/Composer.svelte';
+	import DocumentViewer from '$lib/components/DocumentViewer.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import KeyGate from '$lib/components/KeyGate.svelte';
 	import Logo from '$lib/components/Logo.svelte';
@@ -22,6 +23,7 @@
 	import { brain } from '$lib/state/brain.svelte';
 	import { conversation } from '$lib/state/conversation.svelte';
 	import { documents } from '$lib/state/documents.svelte';
+	import { pages } from '$lib/state/pages.svelte';
 	import { session } from '$lib/state/session.svelte';
 	import { CHARACTERS, type CharacterId } from '$lib/voices';
 
@@ -30,6 +32,7 @@
 
 	let unlocked = $state(false);
 	let settingsOpen = $state(false);
+	let viewing = $state<string | null>(null);
 
 	let voiceStatus = $state<VoiceStatus>('idle');
 	let voiceActive = $state(false);
@@ -77,6 +80,7 @@
 		},
 		onToolResult: (callId, isError, view, durationMs) => {
 			conversation.finishTool(callId, isError, view, durationMs);
+			absorbMarks(view as never);
 		},
 		onError: (message) => conversation.addNotice(message),
 		onAudioLevel: (level, isAudible) => {
@@ -97,6 +101,31 @@
 		list_documents: 'Checking loaded documents'
 	};
 	const toolLabel = (name: string) => TOOL_LABELS[name] ?? name;
+
+	/**
+	 * A highlight is decided on the server and placed in the browser.
+	 *
+	 * The tool names passages; matching them to a position needs the OCR, which
+	 * lives in this tab along with the file. So every finished tool result is
+	 * checked for marks, whichever transport carried it.
+	 */
+	function absorbMarks(view?: { card: string } & Record<string, unknown>) {
+		if (view?.card !== 'highlight') return;
+		const documentId = view.documentId as string;
+		const marks = view.marks as { quote: string; note: string; severity: 'high' | 'medium' | 'low' | 'info' }[];
+		for (const mark of marks) pages.add(documentId, mark.quote, mark.note, mark.severity);
+		// Reading is what turns a quote into a place, and it takes a moment —
+		// start it now rather than when the viewer opens.
+		if (marks.length) void pages.read(documentId);
+	}
+
+	function showOnPage(documentId: string, quote: string) {
+		viewing = documentId;
+		const highlight = pages
+			.forDocument(documentId)
+			.find((candidate) => candidate.quote === quote);
+		if (highlight) pages.reveal(highlight.id);
+	}
 
 	onMount(() => {
 		// A remembered key still gets checked, so a revoked one fails at the
@@ -188,6 +217,7 @@
 				signal: abort.signal
 			})) {
 				conversation.applyAgentEvent(event);
+				if (event.type === 'tool-result') absorbMarks(event.view as never);
 				if (event.type === 'text') {
 					textStreaming = true;
 					stage?.appendTranscript(event.delta);
@@ -224,6 +254,8 @@
 		voiceActive = false;
 		conversation.reset();
 		documents.clear();
+		pages.clear();
+		viewing = null;
 		stage?.clearTranscript();
 		settingsOpen = false;
 	}
@@ -324,7 +356,7 @@
 							</ul>
 						</div>
 					{:else}
-						<Transcript />
+						<Transcript onshow={showOnPage} />
 					{/if}
 				</div>
 
@@ -351,12 +383,15 @@
 						placeholder={voiceActive ? 'Type while you talk…' : 'Ask about a regulation…'}
 						onsend={send}
 						onstop={stopTurn}
+						onopen={(id) => (viewing = id)}
 					/>
 				</div>
 			{/if}
 		</section>
 	</main>
 </div>
+
+<DocumentViewer documentId={viewing} onclose={() => (viewing = null)} />
 
 <SettingsDialog
 	open={settingsOpen}

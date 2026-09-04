@@ -17,6 +17,7 @@ import {
 import { documentsPlugin, type DocumentStore, type StoredDocument } from './documents.js';
 import { ecfrPlugin } from './ecfr.js';
 import { federalRegisterPlugin } from './federal-register.js';
+import { highlightPlugin } from './highlight.js';
 import { loopGuardPlugin } from './loop-guard.js';
 import { reviewPlugin } from './review.js';
 
@@ -52,7 +53,10 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 
 	if (packs.has('ecfr')) await ctx.plugin(ecfrPlugin);
 	if (packs.has('federal-register')) await ctx.plugin(federalRegisterPlugin);
-	if (packs.has('review')) await ctx.plugin(reviewPlugin);
+	if (packs.has('review')) {
+		await ctx.plugin(reviewPlugin);
+		await ctx.plugin(highlightPlugin);
+	}
 
 	await ctx.plugin(loopGuardPlugin);
 

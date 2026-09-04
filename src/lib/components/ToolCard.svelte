@@ -6,9 +6,18 @@
 	 * how it looks without importing anything from the UI, and the same card
 	 * renders whether the call came from a typed question or a spoken one.
 	 */
+	import { MapsLocation01Icon } from '@hugeicons/core-free-icons';
+	import Icon from './Icon.svelte';
 	import type { Entry } from '$lib/state/conversation.svelte';
 
-	let { entry }: { entry: Extract<Entry, { kind: 'tool' }> } = $props();
+	let {
+		entry,
+		onshow
+	}: {
+		entry: Extract<Entry, { kind: 'tool' }>;
+		/** Open the document at a marked passage. */
+		onshow?: (documentId: string, quote: string) => void;
+	} = $props();
 
 	const result = $derived(entry.result);
 	const call = $derived(entry.call);
@@ -111,6 +120,22 @@
 					</p>
 					<blockquote>{finding.quote}</blockquote>
 					<p class="concern">{finding.concern}</p>
+				</li>
+			{/each}
+		</ul>
+	{:else if result?.card === 'highlight'}
+		<p class="lead">
+			{result.marks.length}
+			{result.marks.length === 1 ? 'passage' : 'passages'} marked on {result.documentName}
+		</p>
+		<ul class="marks">
+			{#each result.marks as mark, index (index)}
+				<li data-severity={mark.severity}>
+					<button type="button" onclick={() => onshow?.(result.documentId, mark.quote)}>
+						<span class="mark-note">{mark.note}</span>
+						<span class="mark-quote">“{mark.quote}”</span>
+						<Icon icon={MapsLocation01Icon} size={15} />
+					</button>
 				</li>
 			{/each}
 		</ul>
@@ -365,6 +390,67 @@
 		line-height: 1.5;
 		font-style: italic;
 		color: var(--ink-soft);
+	}
+
+	/* ---------------------------------------------------------------- marks */
+
+	.marks {
+		gap: 6px;
+	}
+
+	.marks li {
+		padding: 0;
+		border-left: 0;
+	}
+
+	.marks button {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		width: 100%;
+		text-align: left;
+		border: 1px solid var(--line);
+		border-left: 3px solid var(--severity-info);
+		border-radius: 10px;
+		background: var(--paper);
+		padding: 8px 11px;
+		cursor: pointer;
+		color: var(--muted);
+		transition:
+			background 160ms var(--ease),
+			border-color 160ms var(--ease);
+	}
+
+	.marks button:hover {
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	.marks li[data-severity='high'] button {
+		border-left-color: var(--severity-high);
+	}
+	.marks li[data-severity='medium'] button {
+		border-left-color: var(--severity-medium);
+	}
+	.marks li[data-severity='low'] button {
+		border-left-color: var(--severity-low);
+	}
+
+	.mark-note {
+		font-size: 13.5px;
+		font-weight: 620;
+		color: var(--ink);
+		white-space: nowrap;
+	}
+
+	.mark-quote {
+		flex: 1;
+		min-width: 0;
+		font-size: 12.5px;
+		font-style: italic;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.failure {

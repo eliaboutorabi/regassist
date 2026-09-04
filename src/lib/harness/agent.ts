@@ -32,7 +32,7 @@ export interface AgentRunOptions {
 	apiKey: string;
 	model: string;
 	signal?: AbortSignal;
-	/** Guard against a tool-calling model that never settles. Defaults to 10. */
+	/** Guard against a tool-calling model that never settles. Defaults to 12. */
 	maxSteps?: number;
 	maxOutputTokens?: number;
 }
@@ -44,7 +44,7 @@ export class AgentService {
 	async *run(options: AgentRunOptions): AsyncGenerator<AgentEvent> {
 		const llm = this.ctx.require<LLMService>('llm');
 		const tools = this.ctx.require<ToolRegistry>('tools');
-		const maxSteps = options.maxSteps ?? 10;
+		const maxSteps = options.maxSteps ?? 12;
 		const messages: ChatMessage[] = [...options.messages];
 
 		for (let step = 0; step < maxSteps; step += 1) {

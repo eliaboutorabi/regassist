@@ -47,6 +47,13 @@ export type RuleChange = {
 	cfrReferences?: string[];
 };
 
+/** One passage Verity has asked to be shown on the page. */
+export type DocumentMark = {
+	quote: string;
+	note: string;
+	severity: 'high' | 'medium' | 'low' | 'info';
+};
+
 /** One flagged passage from a reviewed document. */
 export type ReviewFinding = {
 	severity: 'high' | 'medium' | 'low' | 'info';
@@ -70,6 +77,13 @@ export type ToolResultView =
 	| { card: 'regulation'; title: string; section: RegulationCitation; body: string }
 	| { card: 'changes'; title: string; query: string; changes: RuleChange[] }
 	| { card: 'review'; title: string; documentName: string; findings: ReviewFinding[]; summary: string }
+	| {
+			card: 'highlight';
+			title: string;
+			documentId: string;
+			documentName: string;
+			marks: DocumentMark[];
+	  }
 	| { card: 'error'; title: string; detail: string };
 
 // ---------------------------------------------------------------- definitions

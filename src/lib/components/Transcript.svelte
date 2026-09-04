@@ -4,6 +4,8 @@
 	import { renderMarkdown } from '$lib/markdown';
 	import { conversation } from '$lib/state/conversation.svelte';
 
+	let { onshow }: { onshow?: (documentId: string, quote: string) => void } = $props();
+
 	let scroller = $state<HTMLDivElement | null>(null);
 	let pinned = $state(true);
 	/** Tells the shell to draw the bar's rule once content is behind it. */
@@ -47,7 +49,7 @@
 					{/if}
 				</div>
 			{:else if entry.kind === 'tool'}
-				<ToolCard {entry} />
+				<ToolCard {entry} {onshow} />
 			{:else}
 				<p class="notice" data-tone={entry.tone}>{entry.text}</p>
 			{/if}

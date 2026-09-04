@@ -40,20 +40,31 @@ export class DocumentStore {
 	}
 
 	/**
-	 * Resolve a document the way a model refers to one: by id when it has one,
-	 * by name when it is repeating what the user called it, and by "the only
-	 * one loaded" when the conversation has never needed to disambiguate.
+	 * Resolve a document the way a model refers to one.
+	 *
+	 * By id, by name, or by part of a name — and when exactly one document is
+	 * loaded, by anything at all. A model asked to review "the loaded document"
+	 * will sometimes pass the string "loaded", and refusing that when there is
+	 * only one candidate is pedantry that costs the user their answer: the
+	 * review failed, so the markup had no text to quote from, so nothing was
+	 * marked. One document is unambiguous whatever it gets called.
 	 */
 	resolve(reference?: string): StoredDocument | undefined {
 		const all = [...this.#documents.values()];
+		if (!all.length) return undefined;
 		if (!reference) return all.length === 1 ? all[0] : undefined;
+
 		const direct = this.#documents.get(reference);
 		if (direct) return direct;
-		const lowered = reference.toLowerCase();
-		return (
+
+		const lowered = reference.trim().toLowerCase();
+		const byName =
 			all.find((document) => document.name.toLowerCase() === lowered) ??
-			all.find((document) => document.name.toLowerCase().includes(lowered))
-		);
+			all.find((document) => document.name.toLowerCase().includes(lowered)) ??
+			all.find((document) => lowered.includes(document.name.toLowerCase()));
+		if (byName) return byName;
+
+		return all.length === 1 ? all[0] : undefined;
 	}
 
 	list(): { id: string; name: string; characters: number }[] {

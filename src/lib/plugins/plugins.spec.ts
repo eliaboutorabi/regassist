@@ -101,6 +101,7 @@ describe('harness assembly', () => {
 
 		expect(names).toEqual([
 			'find_rule_changes',
+			'highlight_document',
 			'list_documents',
 			'read_regulation',
 			'review_document',
@@ -235,6 +236,44 @@ describe('eCFR citation guidance', () => {
 
 		expect(result.isError).toBe(true);
 		expect(result.content[0].text).toMatch(/part number, not a section number/);
+		ctx.dispose();
+	});
+});
+
+describe('resolving a document by whatever the model called it', () => {
+	async function store(names: string[]) {
+		const ctx = new Context();
+		await ctx.plugin(documentsPlugin);
+		const documents = ctx.require<DocumentStore>('documents');
+		names.forEach((name, index) =>
+			documents.put({ id: `d${index}`, name, text: 'x', kind: 'paste' })
+		);
+		return { ctx, documents };
+	}
+
+	it('accepts a word that is not the name when only one is loaded', async () => {
+		const { ctx, documents } = await store(['harbourline-memo.pdf']);
+		// What a model actually passes when told "the loaded document".
+		expect(documents.resolve('loaded')?.name).toBe('harbourline-memo.pdf');
+		expect(documents.resolve('the document')?.name).toBe('harbourline-memo.pdf');
+		ctx.dispose();
+	});
+
+	it('matches when the model quotes more than the name', async () => {
+		const { ctx, documents } = await store(['memo.pdf', 'letter.txt']);
+		expect(documents.resolve('the memo.pdf I uploaded')?.name).toBe('memo.pdf');
+		ctx.dispose();
+	});
+
+	it('still refuses to guess between several', async () => {
+		const { ctx, documents } = await store(['memo.pdf', 'letter.txt']);
+		expect(documents.resolve('loaded')).toBeUndefined();
+		ctx.dispose();
+	});
+
+	it('resolves nothing when nothing is loaded', async () => {
+		const { ctx, documents } = await store([]);
+		expect(documents.resolve('anything')).toBeUndefined();
 		ctx.dispose();
 	});
 });
