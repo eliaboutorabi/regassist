@@ -3,7 +3,10 @@
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
 		"allowJs": true,
-		"checkJs": true,
+		// The vendored Three.js robot in src/lib/robot is plain JS carried over
+		// verbatim from the original prototype. Type-checking it would mean
+		// editing vendored code, which VENDOR.md rules out.
+		"checkJs": false,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,
 		"resolveJsonModule": true,

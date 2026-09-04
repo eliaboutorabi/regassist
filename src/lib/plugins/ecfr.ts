@@ -1,0 +1,194 @@
+/** Tools over the eCFR: find the provision, then read it. */
+
+import { defineTool, type Context, type ToolRegistry } from '$lib/harness';
+import { RELEVANT_TITLES, readSection, searchRegulations } from '$lib/sources/ecfr.js';
+
+const CITATION_SCHEMA = {
+	type: 'object' as const,
+	additionalProperties: false,
+	properties: {
+		citation: { type: 'string' as const, required: true as const },
+		heading: { type: 'string' as const, required: true as const },
+		hierarchy: { type: 'string' as const, required: true as const },
+		url: { type: 'string' as const, required: true as const },
+		excerpt: { type: 'string' as const },
+		titleName: { type: 'string' as const }
+	}
+};
+
+const TITLE_ENUM = RELEVANT_TITLES.map((title) => title.number);
+const TITLE_GUIDE = RELEVANT_TITLES.map(
+	(title) => `${title.number} (${title.name}: ${title.blurb})`
+).join('; ');
+
+export const ecfrPlugin = {
+	name: 'source-ecfr',
+	inject: ['tools'] as const,
+
+	apply(ctx: Context) {
+		const tools = ctx.require<ToolRegistry>('tools');
+
+		tools.register(
+			defineTool({
+				name: 'search_regulations',
+				label: 'Searching the eCFR',
+				description: [
+					'Search the current Code of Federal Regulations by keyword and return matching sections with citations.',
+					'This is the first tool to reach for on any question about what a federal rule requires.',
+					`Narrow with the title argument when the subject clearly belongs to one: ${TITLE_GUIDE}.`,
+					'Search in the vocabulary of the regulation itself rather than the caller’s words: "ordinary and necessary business expense" finds more than "can I write off lunch".'
+				].join(' '),
+				parameters: {
+					query: {
+						type: 'string',
+						required: true,
+						description: 'Keywords in regulatory language. Two to six words works best.'
+					},
+					title: {
+						type: 'integer',
+						enum: TITLE_ENUM,
+						description: 'Restrict to one CFR title. Omit to search every title.'
+					},
+					limit: {
+						type: 'integer',
+						minimum: 1,
+						maximum: 12,
+						description: 'How many sections to return. Defaults to 6.'
+					}
+				},
+				output: {
+					schema: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							hits: { type: 'array', items: CITATION_SCHEMA, required: true },
+							totalCount: { type: 'integer', required: true },
+							query: { type: 'string', required: true }
+						}
+					},
+					render: (args, value) => {
+						if (!value.hits.length) {
+							return [
+								{
+									type: 'text',
+									text: `No CFR section matched "${args.query}". Try broader or more regulatory wording, or drop the title filter.`
+								}
+							];
+						}
+						const lines = value.hits.map(
+							(hit, index) =>
+								`${index + 1}. ${hit.citation} — ${hit.heading}\n   ${hit.hierarchy}\n   ${hit.excerpt ?? 'No excerpt available.'}`
+						);
+						return [
+							{
+								type: 'text',
+								text: [
+									`${value.totalCount} section(s) match "${args.query}". Showing ${value.hits.length}:`,
+									'',
+									...lines,
+									'',
+									'Call read_regulation on the most relevant citation before advising on it — these are excerpts, not the operative text.'
+								].join('\n')
+							}
+						];
+					}
+				},
+				presentCall: (args) => ({
+					card: 'search',
+					title: args.title ? `Title ${args.title}` : 'All CFR titles',
+					query: args.query
+				}),
+				presentResult: (args, value) => ({
+					card: 'results',
+					title: args.title ? `Title ${args.title} results` : 'eCFR results',
+					query: args.query,
+					hits: value.hits,
+					truncated: value.totalCount > value.hits.length
+				}),
+				async execute(args, exec) {
+					const outcome = await searchRegulations({
+						query: args.query,
+						title: args.title,
+						limit: args.limit,
+						signal: exec.signal
+					});
+					return { hits: outcome.hits, totalCount: outcome.totalCount, query: args.query };
+				}
+			})
+		);
+
+		tools.register(
+			defineTool({
+				name: 'read_regulation',
+				label: 'Reading the regulation',
+				description: [
+					'Read the full current text of one CFR section, straight from the eCFR.',
+					'Use it before stating what a rule requires — a search excerpt is not the operative text.',
+					'The section argument is the number as it appears in the citation: "1.162-1" for 26 CFR § 1.162-1, "210.4-08" for 17 CFR § 210.4-08.'
+				].join(' '),
+				parameters: {
+					title: {
+						type: 'integer',
+						required: true,
+						description: 'The CFR title number, for example 26 for the Treasury regulations.'
+					},
+					section: {
+						type: 'string',
+						required: true,
+						description: 'The section number without the section sign, for example "1.162-1".'
+					}
+				},
+				output: {
+					schema: {
+						type: 'object',
+						additionalProperties: false,
+						properties: {
+							section: { ...CITATION_SCHEMA, required: true },
+							body: { type: 'string', required: true },
+							truncated: { type: 'boolean', required: true }
+						}
+					},
+					render: (_args, value) => [
+						{
+							type: 'text',
+							text: [
+								`${value.section.citation} — ${value.section.heading}`,
+								value.section.url,
+								'',
+								value.body,
+								value.truncated
+									? '\n[The section was truncated. Read the linked source for the remainder.]'
+									: ''
+							]
+								.join('\n')
+								.trim()
+						}
+					]
+				},
+				presentCall: (args) => ({
+					card: 'regulation',
+					title: 'Reading',
+					citation: `${args.title} CFR § ${args.section}`
+				}),
+				presentResult: (_args, value) => ({
+					card: 'regulation',
+					title: value.section.citation,
+					section: value.section,
+					body: value.body
+				}),
+				async execute(args, exec) {
+					const outcome = await readSection({
+						title: args.title,
+						section: args.section,
+						signal: exec.signal
+					});
+					return {
+						section: outcome.citation,
+						body: outcome.body,
+						truncated: outcome.truncated
+					};
+				}
+			})
+		);
+	}
+};

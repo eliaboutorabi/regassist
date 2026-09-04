@@ -8,6 +8,7 @@ export {
 	validateArgs,
 	validateValue,
 	type InferArgs,
+	type InferValue,
 	type JsonValue,
 	type ParameterSchemaSpec,
 	type ValueSchemaSpec

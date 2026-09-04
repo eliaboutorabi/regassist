@@ -11,6 +11,8 @@
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
+
+
 interface Annotations {
 	description?: string;
 	title?: string;
@@ -71,7 +73,12 @@ export type ParameterSchemaSpec = Record<string, ParameterPropertySpec>;
 
 // ------------------------------------------------------------------ inference
 
-type InferValue<S> = S extends { type: 'string'; enum: readonly (infer E)[] }
+/**
+ * The TypeScript type one value schema describes. Optional object properties
+ * become optional keys, so an author writes the natural domain shape and the
+ * validator drops whatever is absent.
+ */
+export type InferValue<S> = S extends { type: 'string'; enum: readonly (infer E)[] }
 	? E
 	: S extends { type: 'string' }
 		? string

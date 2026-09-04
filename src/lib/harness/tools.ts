@@ -17,6 +17,7 @@ import {
 	validateArgs,
 	validateValue,
 	type InferArgs,
+	type InferValue,
 	type JsonValue,
 	type ParameterSchemaSpec,
 	type ValueSchemaSpec
@@ -25,35 +26,37 @@ import {
 // ---------------------------------------------------------------- render intents
 
 /** One regulation section pulled from the eCFR. */
-export interface RegulationCitation {
+export type RegulationCitation = {
 	citation: string;
 	heading: string;
 	hierarchy: string;
 	url: string;
 	excerpt?: string;
 	titleName?: string;
-}
+};
 
 /** One rule-making document from the Federal Register. */
-export interface RuleChange {
+export type RuleChange = {
 	title: string;
 	type: string;
 	agency: string;
 	publishedOn: string;
-	effectiveOn?: string | null;
+	effectiveOn?: string;
 	url: string;
 	abstract?: string;
 	cfrReferences?: string[];
-}
+};
 
 /** One flagged passage from a reviewed document. */
-export interface ReviewFinding {
+export type ReviewFinding = {
 	severity: 'high' | 'medium' | 'low' | 'info';
 	topic: string;
 	quote: string;
 	concern: string;
 	lookup: string;
-}
+	/** CFR title the suggested lookup should be scoped to, when there is one. */
+	title?: number;
+};
 
 export type ToolCallView =
 	| { card: 'generic'; title: string; detail?: string }
@@ -83,9 +86,18 @@ export interface ToolContentBlock {
 	text: string;
 }
 
+/**
+ * A tool definition.
+ *
+ * Both the argument type and the canonical return type come from the schemas,
+ * never from the function bodies — declaring `output.schema` is what gives
+ * `execute` its return type and `render` its `value`. That is the upstream
+ * contract, and it means the schema the model sees and the type the author
+ * writes against can never drift apart.
+ */
 export interface ToolDefinition<
 	S extends ParameterSchemaSpec = ParameterSchemaSpec,
-	V extends JsonValue = JsonValue
+	O extends ValueSchemaSpec = ValueSchemaSpec
 > {
 	readonly name: string;
 	readonly description: string;
@@ -93,22 +105,27 @@ export interface ToolDefinition<
 	readonly label?: string;
 	readonly parameters: S;
 	readonly output: {
-		readonly schema: ValueSchemaSpec;
-		render(args: InferArgs<S>, value: V): ToolContentBlock[];
+		readonly schema: O;
+		render(args: InferArgs<S>, value: InferValue<O>): ToolContentBlock[];
 	};
 	/** Pure projection of the pending call. Must not do I/O. */
 	presentCall?(args: InferArgs<S>): ToolCallView | undefined;
 	/** Pure projection of the completed call. Must not do I/O. */
-	presentResult?(args: InferArgs<S>, value: V): ToolResultView | undefined;
-	execute(args: InferArgs<S>, exec: ToolExecution): Promise<V> | V;
+	presentResult?(args: InferArgs<S>, value: InferValue<O>): ToolResultView | undefined;
+	execute(args: InferArgs<S>, exec: ToolExecution): InferValue<O> | Promise<InferValue<O>>;
 }
 
-/** Author a tool with argument and return types inferred from the schemas. */
-export function defineTool<S extends ParameterSchemaSpec, V extends JsonValue>(
-	definition: ToolDefinition<S, V>
-): ToolDefinition<S, V> {
+/** Author a tool with both types inferred from its schemas. */
+export function defineTool<S extends ParameterSchemaSpec, O extends ValueSchemaSpec>(
+	definition: ToolDefinition<S, O>
+): ToolDefinition<S, O> {
 	return definition;
 }
+
+/** Erased shape the registry stores; authors never see it. */
+type RegisteredTool = ToolDefinition<ParameterSchemaSpec, ValueSchemaSpec> & {
+	execute(args: never, exec: ToolExecution): unknown;
+};
 
 /** The provider-facing projection of a registered tool. */
 export interface ToolSchema {
@@ -160,19 +177,19 @@ export class ToolCallError extends Error {
  *   - `tools/result`      `@mode emit`      — observe the normalized outcome.
  */
 export class ToolRegistry {
-	readonly #tools = new Map<string, ToolDefinition<never, never>>();
+	readonly #tools = new Map<string, RegisteredTool>();
 
 	constructor(private readonly ctx: Context) {}
 
 	/** Registration is effect-based: disposing the plugin unregisters the tool. */
-	register<S extends ParameterSchemaSpec, V extends JsonValue>(
-		definition: ToolDefinition<S, V>
+	register<S extends ParameterSchemaSpec, O extends ValueSchemaSpec>(
+		definition: ToolDefinition<S, O>
 	): Disposer {
 		return this.ctx.effect(() => {
 			if (this.#tools.has(definition.name)) {
 				throw new Error(`Tool "${definition.name}" is already registered.`);
 			}
-			this.#tools.set(definition.name, definition as unknown as ToolDefinition<never, never>);
+			this.#tools.set(definition.name, definition as unknown as RegisteredTool);
 			return () => this.#tools.delete(definition.name);
 		});
 	}
