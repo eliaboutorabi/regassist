@@ -213,10 +213,12 @@ describe('ToolRegistry', () => {
 	});
 
 	it('falls back to a generic card when a logged call cannot be replayed', async () => {
-		const { ctx, registry } = await registryWith({
-			...echo,
-			presentCall: (args) => ({ card: 'generic', title: args.text })
-		});
+		const { ctx, registry } = await registryWith(
+			defineTool({
+				...echo,
+				presentCall: (args) => ({ card: 'generic', title: args.text })
+			})
+		);
 		expect(registry.presentCall('echo', { text: 'hi' })).toEqual({ card: 'generic', title: 'hi' });
 		expect(registry.presentCall('echo', { text: 42 })).toBeUndefined();
 		ctx.dispose();
