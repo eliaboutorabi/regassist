@@ -124,6 +124,8 @@
 
 <style>
 	.card {
+		min-width: 0;
+		overflow-wrap: anywhere;
 		border: 1px solid var(--line);
 		border-radius: var(--radius-md);
 		background: var(--surface);
@@ -265,6 +267,7 @@
 
 	.body {
 		margin-top: 12px;
+		overflow-wrap: anywhere;
 		font-size: 14px;
 		line-height: 1.62;
 		white-space: pre-wrap;

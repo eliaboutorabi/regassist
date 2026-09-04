@@ -615,6 +615,10 @@
 		gap: clamp(14px, 2vw, 26px);
 	}
 
+	main > * {
+		min-width: 0;
+	}
+
 	.stage-col {
 		display: grid;
 		grid-template-rows: minmax(0, 1fr) auto auto;
@@ -654,6 +658,7 @@
 		flex-direction: column;
 		gap: 12px;
 		min-height: 0;
+		min-width: 0;
 	}
 
 	.opening {
@@ -770,31 +775,75 @@
 
 	/* --------------------------------------------------------------- mobile */
 
+	/*
+	 * A phone gets the chat-app shape rather than one long scrolling page: the
+	 * robot stays visible as a compact band, the transcript scrolls inside its
+	 * own pane, and the composer never leaves the bottom of the screen.
+	 */
 	@media (max-width: 900px) {
 		.app {
-			height: auto;
-			min-height: 100svh;
+			height: 100dvh;
+			padding-bottom: max(10px, env(safe-area-inset-bottom));
 		}
 
 		main {
 			grid-template-columns: 1fr;
-			gap: 16px;
+			grid-template-rows: auto minmax(0, 1fr);
+			gap: 12px;
 		}
 
 		.stage-col {
-			grid-template-rows: auto auto auto;
+			display: grid;
+			grid-template-columns: 118px minmax(0, 1fr);
+			grid-template-areas:
+				'robot controls'
+				'docs docs';
+			align-items: center;
+			gap: 12px;
 		}
 
 		.stage-frame {
-			height: min(38svh, 300px);
+			grid-area: robot;
+			width: 118px;
+			height: 118px;
+			border-radius: var(--radius-md);
 		}
 
-		.work-col {
-			min-height: 52svh;
+		.controls {
+			grid-area: controls;
+			justify-items: start;
+			text-align: left;
+			gap: 7px;
+		}
+
+		.status {
+			max-width: none;
+			font-size: 12px;
+		}
+
+		.stage-col :global(.panel) {
+			grid-area: docs;
 		}
 
 		.brand p {
 			display: none;
+		}
+
+		.opening h2 {
+			font-size: 25px;
+		}
+
+		.opening {
+			align-content: start;
+			padding-top: 4px;
+		}
+	}
+
+	/* Below this the robot band competes with the transcript for space. */
+	@media (max-width: 900px) and (max-height: 680px) {
+		.stage-frame {
+			width: 92px;
+			height: 92px;
 		}
 	}
 
@@ -803,5 +852,15 @@
 			padding: 6px 11px;
 			font-size: 12px;
 		}
+
+		.stage-col {
+			grid-template-columns: 96px minmax(0, 1fr);
+		}
+
+		.stage-frame {
+			width: 96px;
+			height: 96px;
+		}
 	}
+
 </style>

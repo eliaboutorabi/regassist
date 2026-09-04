@@ -182,6 +182,17 @@
 		color: var(--muted);
 	}
 
+	/* On a phone the transcript needs the height more than the hint does. */
+	@media (max-width: 900px) {
+		.panel {
+			padding: 10px 12px;
+		}
+
+		.empty {
+			display: none;
+		}
+	}
+
 	.loaded {
 		list-style: none;
 		margin: 10px 0 0;

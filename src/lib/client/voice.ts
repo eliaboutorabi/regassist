@@ -69,8 +69,12 @@ export class VoiceSession {
 	#envelope = 0;
 	#lastAudibleAt = -Infinity;
 	#pending = new Map<string, PendingCall>();
-	/** Calls executed during the current response, awaiting a follow-up. */
+	/** Tool calls from the current response that have not returned yet. */
 	#outstanding = 0;
+	/** Whether the current response has finished emitting its output items. */
+	#responseClosed = true;
+	/** Tool calls this response made, so we only follow up when it made some. */
+	#calledThisResponse = 0;
 	#documents: StoredDocument[] = [];
 	#status: VoiceStatus = 'idle';
 	#muted = false;
@@ -188,6 +192,8 @@ export class VoiceSession {
 		this.#lastAudibleAt = -Infinity;
 		this.#pending.clear();
 		this.#outstanding = 0;
+		this.#calledThisResponse = 0;
+		this.#responseClosed = true;
 		this.handlers.onAudioLevel(0, false);
 		if (this.#status !== 'error') this.#setStatus('idle');
 	}
@@ -323,6 +329,8 @@ export class VoiceSession {
 
 			case 'response.created':
 				this.#outstanding = 0;
+				this.#calledThisResponse = 0;
+				this.#responseClosed = false;
 				this.#setStatus('speaking');
 				break;
 
@@ -359,20 +367,26 @@ export class VoiceSession {
 				if (!entry) break;
 				this.#pending.delete(key);
 				this.#outstanding += 1;
+				this.#calledThisResponse += 1;
 				void this.#runTool(entry, (event.arguments as string) ?? entry.args);
 				break;
 			}
 
 			case 'response.done': {
 				this.handlers.onAssistantDone();
-				// A response that only made tool calls needs a follow-up turn; one
-				// that spoke does not. #runTool triggers it once results are in.
-				if (this.#outstanding === 0 && this.#status !== 'error') this.#setStatus('listening');
+				// Only now do we know how many calls this response made, which is
+				// what makes it safe to decide whether a follow-up is owed.
+				this.#responseClosed = true;
+				this.#continueIfSettled();
 				break;
 			}
 
 			case 'output_audio_buffer.stopped':
-				if (this.#outstanding === 0 && this.#status === 'speaking') this.#setStatus('listening');
+				// The tail of the audio, not the end of the response object, is
+				// when a listener actually stops hearing Verity.
+				if (this.#responseClosed && this.#outstanding === 0 && this.#status === 'speaking') {
+					this.#setStatus('listening');
+				}
 				break;
 
 			case 'error': {
@@ -441,13 +455,28 @@ export class VoiceSession {
 			item: { type: 'function_call_output', call_id: call.callId, output }
 		});
 
-		this.#outstanding -= 1;
-		// Ask for the spoken answer only once every call in this turn is back,
-		// so the model sees all its results at the same time.
-		if (this.#outstanding <= 0) {
-			this.#outstanding = 0;
+		this.#outstanding = Math.max(0, this.#outstanding - 1);
+		this.#continueIfSettled();
+	}
+
+	/**
+	 * Ask for the spoken answer once, when the response has finished emitting
+	 * its calls *and* every one of them has come back.
+	 *
+	 * Waiting on both conditions matters: a fast (or cached) tool can return
+	 * before the model has finished streaming its second call, and following up
+	 * on an outstanding count alone would then request two responses for one
+	 * turn — which the user hears as Verity answering twice.
+	 */
+	#continueIfSettled(): void {
+		if (!this.#responseClosed || this.#outstanding > 0) return;
+
+		if (this.#calledThisResponse > 0) {
+			this.#calledThisResponse = 0;
 			this.#send({ type: 'response.create' });
+			return;
 		}
+		if (this.#status !== 'error') this.#setStatus('listening');
 	}
 }
 

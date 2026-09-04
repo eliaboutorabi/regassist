@@ -56,6 +56,7 @@
 	.scroller {
 		flex: 1;
 		min-height: 0;
+		min-width: 0;
 		overflow-y: auto;
 		overscroll-behavior: contain;
 		padding: 4px 2px 8px;
@@ -109,6 +110,7 @@
 		line-height: 1.65;
 		color: var(--ink);
 		max-width: 66ch;
+		overflow-wrap: anywhere;
 	}
 
 	.prose :global(p) {
