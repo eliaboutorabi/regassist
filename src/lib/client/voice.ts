@@ -41,12 +41,20 @@ export interface VoiceHandlers {
 	onAudioLevel(level: number, audible: boolean): void;
 }
 
+/** One prior turn, replayed into a new voice session for continuity. */
+export interface PriorTurn {
+	role: 'user' | 'assistant';
+	content: string;
+}
+
 export interface VoiceStartOptions {
 	apiKey: string;
 	character: CharacterId;
 	documents: StoredDocument[];
 	/** Speak an opening line without waiting for the user. */
 	greet?: boolean;
+	/** Conversation so far, so picking up the microphone continues the thread. */
+	history?: PriorTurn[];
 }
 
 interface PendingCall {
@@ -134,6 +142,7 @@ export class VoiceSession {
 			this.#channel = channel;
 			channel.addEventListener('open', () => {
 				this.#setStatus('listening');
+				this.#seedHistory(options.history ?? []);
 				if (options.greet) this.#requestGreeting();
 			});
 			channel.addEventListener('message', (message) => {
@@ -225,6 +234,35 @@ export class VoiceSession {
 			throw new Error(payload?.message ?? `Could not start a voice session (${response.status}).`);
 		}
 		return payload.clientSecret;
+	}
+
+	/**
+	 * Replay the conversation so far into the new session.
+	 *
+	 * A realtime session starts with no memory of anything typed before it, so
+	 * picking up the microphone mid-conversation would otherwise mean starting
+	 * over — Verity would greet someone she had just been talking to. Seeding
+	 * the items costs nothing until the next response and keeps one thread.
+	 */
+	#seedHistory(history: PriorTurn[]): void {
+		// Recent turns only: the session has its own context budget, and the far
+		// end of a long text thread is rarely what the speaker means to continue.
+		for (const turn of history.slice(-12)) {
+			const text = turn.content.trim();
+			if (!text) continue;
+			this.#send({
+				type: 'conversation.item.create',
+				item: {
+					type: 'message',
+					role: turn.role,
+					content: [
+						turn.role === 'user'
+							? { type: 'input_text', text }
+							: { type: 'output_text', text }
+					]
+				}
+			});
+		}
 	}
 
 	#requestGreeting(): void {

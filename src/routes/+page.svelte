@@ -133,7 +133,9 @@
 				apiKey: session.apiKey,
 				character: session.character,
 				documents: documents.payload(),
-				greet: conversation.isEmpty
+				// Only greet a cold start; mid-conversation, just start listening.
+				greet: conversation.isEmpty,
+				history: conversation.toMessages()
 			});
 			voiceActive = voice.active;
 			stage?.beginResponse();
