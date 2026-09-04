@@ -6,7 +6,16 @@
 	 * how it looks without importing anything from the UI, and the same card
 	 * renders whether the call came from a typed question or a spoken one.
 	 */
-	import { MapsLocation01Icon } from '@hugeicons/core-free-icons';
+	import {
+		Alert02Icon,
+		BookOpen01Icon,
+		CheckmarkCircle02Icon,
+		File01Icon,
+		Legal01Icon,
+		MapsLocation01Icon,
+		Search01Icon,
+		SparklesIcon
+	} from '@hugeicons/core-free-icons';
 	import Icon from './Icon.svelte';
 	import type { Entry } from '$lib/state/conversation.svelte';
 
@@ -31,11 +40,26 @@
 		low: 'Low',
 		info: 'Note'
 	};
+
+	/** A glyph per tool, so a card is recognisable before it is read. */
+	const ICONS: Record<string, typeof Search01Icon> = {
+		search_regulations: Search01Icon,
+		read_regulation: Legal01Icon,
+		find_rule_changes: BookOpen01Icon,
+		review_document: File01Icon,
+		list_documents: File01Icon,
+		highlight_document: MapsLocation01Icon
+	};
+	const icon = $derived(
+		entry.state === 'error' ? Alert02Icon : (ICONS[entry.name] ?? SparklesIcon)
+	);
 </script>
 
 <article class="card" data-state={entry.state} aria-busy={entry.state === 'running'}>
 	<header>
-		<span class="pip" aria-hidden="true"></span>
+		<span class="glyph" aria-hidden="true">
+			<Icon {icon} size={14} />
+		</span>
 		<span class="label">{entry.label}</span>
 		{#if entry.state === 'running'}
 			<span class="timing">working…</span>
@@ -169,12 +193,38 @@
 	header {
 		display: flex;
 		align-items: center;
-		gap: 8px;
+		gap: 9px;
 		font-size: 11px;
 		font-weight: 700;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.07em;
 		text-transform: uppercase;
 		color: var(--muted);
+	}
+
+	.glyph {
+		display: grid;
+		place-items: center;
+		width: 24px;
+		height: 24px;
+		border-radius: 8px;
+		flex: none;
+		background: var(--accent-soft);
+		color: var(--accent);
+	}
+
+	[data-state='running'] .glyph {
+		animation: breathe 1.5s ease-in-out infinite;
+	}
+
+	[data-state='error'] .glyph {
+		background: color-mix(in srgb, var(--severity-high) 12%, white);
+		color: var(--severity-high);
+	}
+
+	@keyframes breathe {
+		50% {
+			opacity: 0.45;
+		}
 	}
 
 	.label {
@@ -190,29 +240,6 @@
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: none;
-	}
-
-	.pip {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		background: var(--accent);
-		flex: none;
-	}
-
-	[data-state='running'] .pip {
-		animation: pulse 1.1s ease-in-out infinite;
-	}
-
-	[data-state='error'] .pip {
-		background: var(--severity-high);
-	}
-
-	@keyframes pulse {
-		50% {
-			opacity: 0.25;
-			transform: scale(0.75);
-		}
 	}
 
 	.pending {
@@ -235,11 +262,23 @@
 		gap: 12px;
 	}
 
+	/*
+	 * No rules down the side. A column of vertical lines beside every result
+	 * reads as scaffolding, and there is nothing here it needs to hold up —
+	 * the citation badge already says where one entry ends and the next begins.
+	 */
 	.hits li,
-	.changes li,
+	.changes li {
+		padding: 10px 12px;
+		border-radius: 12px;
+		background: var(--paper);
+	}
+
 	.findings li {
-		padding-left: 12px;
-		border-left: 2px solid var(--line);
+		padding: 10px 12px 10px 13px;
+		border-radius: 12px;
+		background: var(--paper);
+		border-left: 3px solid var(--severity-info);
 	}
 
 	a {
@@ -254,11 +293,15 @@
 	}
 
 	.citation {
-		display: block;
-		font-size: 12px;
+		display: inline-block;
+		font-size: 11px;
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		color: var(--accent);
+		background: var(--accent-soft);
+		border-radius: 999px;
+		padding: 2px 8px;
+		margin-bottom: 5px;
 		font-variant-numeric: tabular-nums;
 	}
 

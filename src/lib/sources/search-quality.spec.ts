@@ -73,3 +73,20 @@ describe.skipIf(!live)('heading ranking', () => {
 		expect(hits.some((hit) => /employee/i.test(hit.heading))).toBe(true);
 	}, 60_000);
 });
+
+describe.skipIf(!live)('search noise', () => {
+	it('does not surface a section on a synonym alone', async () => {
+		// "meal" expands to "food", which used to reach the Food Stamp Act.
+		const { hits } = await searchRegulations({
+			query: 'business meal deduction',
+			title: 26,
+			limit: 6
+		});
+		expect(hits.map((hit) => hit.heading).join(' ')).not.toMatch(/food stamp/i);
+	}, 60_000);
+
+	it('leaves out navigational stubs', async () => {
+		const { hits } = await searchRegulations({ query: 'fringe benefits', title: 26, limit: 8 });
+		for (const hit of hits) expect(hit.heading).not.toMatch(/^table of contents$/i);
+	}, 60_000);
+});

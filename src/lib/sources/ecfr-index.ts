@@ -109,7 +109,14 @@ export async function sectionIndex(
 	const walk = (node: StructureNode, trail: string[]) => {
 		const label = node.label_description ?? node.label ?? '';
 
-		if (node.type === 'section' && node.identifier && !node.reserved && label) {
+		const navigational = /^(table of contents|contents|cross[- ]reference|scope of|\[reserved\])/i;
+		if (
+			node.type === 'section' &&
+			node.identifier &&
+			!node.reserved &&
+			label &&
+			!navigational.test(label)
+		) {
 			sections.push({
 				title,
 				identifier: node.identifier,
@@ -218,6 +225,8 @@ function scoreHeading(heading: string, context: string, tokens: string[], phrase
 	const lowerContext = context.toLowerCase();
 	let score = 0;
 	let matched = 0;
+	let direct = 0;
+	let synonymScore = 0;
 
 	if (phrase.length > 6 && lowerHeading.includes(phrase)) score += 40;
 
@@ -228,17 +237,22 @@ function scoreHeading(heading: string, context: string, tokens: string[], phrase
 		if (forms.some((form) => new RegExp(`\\b${form}\\b`).test(lowerHeading))) {
 			score += 12 * weight;
 			matched += 1;
+			direct += 1;
 		} else if (forms.some((form) => lowerHeading.includes(form))) {
 			score += 6 * weight;
 			matched += 1;
+			direct += 1;
 		} else {
 			const synonym = (SYNONYMS[token] ?? []).find((word) =>
 				new RegExp(`\\b${word}`).test(lowerHeading)
 			);
 			if (synonym) {
 				// The drafter's word for the caller's idea. Real evidence, but the
-				// caller's own word landing is stronger.
-				score += 8 * rarity(synonym);
+				// caller's own word landing is stronger — and a synonym on its own
+				// is not evidence at all: "meal" expands to "food", which is how a
+				// query about business meals surfaced the Food Stamp Act. Held
+				// back until a word the caller actually typed also lands.
+				synonymScore += 8 * rarity(synonym);
 				matched += 1;
 			} else if (forms.some((form) => new RegExp(`\\b${form}\\b`).test(lowerContext))) {
 				// A part heading match is weak evidence, but it is evidence.
@@ -246,6 +260,9 @@ function scoreHeading(heading: string, context: string, tokens: string[], phrase
 			}
 		}
 	}
+
+	if (direct > 0) score += synonymScore;
+	else if (synonymScore > 0 && tokens.length > 1) return 0;
 
 	if (!matched) return 0;
 	// Every query term present is far stronger than most of them.
