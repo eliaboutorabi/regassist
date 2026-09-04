@@ -42,7 +42,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'States deductibility without the conditions the regulation attaches. Deduction limits are almost always conditional on substantiation, purpose, and the category of expense.',
-		lookup: 'ordinary and necessary business expense deduction requirements',
+		lookup: 'business expenses ordinary and necessary',
 		title: 26
 	}),
 	rule({
@@ -57,7 +57,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Asserts an exclusion from income. Exclusions are enumerated and conditional; the memo should cite the provision it relies on.',
-		lookup: 'items specifically excluded from gross income',
+		lookup: 'exclusions from gross income',
 		title: 26
 	}),
 	rule({
@@ -71,7 +71,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Information-reporting duties are separate from tax liability. A payment can be non-taxable to the recipient and still reportable by the payer.',
-		lookup: 'information returns reporting requirements payments',
+		lookup: 'returns regarding payments',
 		title: 26
 	}),
 	rule({
@@ -105,7 +105,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Contractor-versus-employee status drives payroll tax, benefits and withholding. Misclassification is one of the most commonly assessed exposures.',
-		lookup: 'employee status common law control test employment taxes',
+		lookup: 'who are employees',
 		title: 26
 	}),
 	rule({
@@ -146,8 +146,8 @@ export const REVIEW_RULES: ReviewRule[] = [
 		severity: 'medium',
 		patterns: [/\bhome\s+office\b/i, /\boffice\s+in\s+the\s+home\b/i, /\bworks?\s+from\s+home\s+deduct/i],
 		concern:
-			'Requires exclusive and regular use as a principal place of business. The exclusivity test is where most claims fail.',
-		lookup: 'business use of home exclusive use principal place of business',
+			'Requires exclusive and regular use as a principal place of business, and the exclusivity test is where most claims fail. Note that this test is statutory — 26 U.S.C. § 280A(c)(1) — and Treasury has no final regulations under it, so the CFR will not carry the test itself.',
+		lookup: 'trade or business expenses',
 		title: 26
 	}),
 	rule({
@@ -193,7 +193,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Travel deductions are subject to heightened substantiation: amount, time, place and business purpose, contemporaneously recorded.',
-		lookup: 'substantiation requirements travel entertainment listed property records',
+		lookup: 'substantiation requirements',
 		title: 26
 	}),
 	rule({
@@ -232,8 +232,8 @@ export const REVIEW_RULES: ReviewRule[] = [
 		severity: 'high',
 		patterns: [/\bemployee\s+retention\s+(?:credit|tax\s+credit)\b/i, /\bERC\b/, /\bERTC\b/],
 		concern:
-			'Eligibility rests on specific suspension or gross-receipts tests for defined quarters. Claims from this area have drawn concentrated enforcement attention.',
-		lookup: 'employment tax credits eligible employer qualified wages',
+			'Eligibility rests on specific suspension or gross-receipts tests for defined quarters, and claims here have drawn concentrated enforcement attention. The credit is statutory with little free-standing regulation, so expect the CFR to cover the employment-tax reporting around it rather than the credit itself.',
+		lookup: 'returns of employment taxes',
 		title: 26
 	}),
 	rule({
@@ -307,7 +307,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Digital-asset dispositions are property transactions with their own broker-reporting regime and basis-tracking requirements.',
-		lookup: 'returns of brokers digital asset transactions basis reporting',
+		lookup: 'returns of information of brokers',
 		title: 26
 	}),
 	rule({
@@ -339,7 +339,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'For an SEC registrant the presentation and disclosure rules in Regulation S-X apply on top of the accounting standard.',
-		lookup: 'Regulation S-X form and content of financial statements',
+		lookup: 'form order and terminology financial statements',
 		title: 17
 	}),
 	rule({
@@ -384,7 +384,7 @@ export const REVIEW_RULES: ReviewRule[] = [
 		],
 		concern:
 			'Substantial doubt about going concern drives both a disclosure requirement and a modification to the audit report.',
-		lookup: 'financial statement disclosure going concern uncertainties',
+		lookup: "accountants' reports and attestation reports",
 		title: 17
 	}),
 	rule({

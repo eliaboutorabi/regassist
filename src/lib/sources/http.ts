@@ -47,6 +47,52 @@ function writeCache(key: string, value: unknown, ttlMs: number): void {
 	cache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
+/**
+ * Both sources are free government APIs that throttle a burst.
+ *
+ * A single agent step can legitimately fire five lookups at once — the review
+ * pack hands the model five leads and it chases them in parallel — which is
+ * exactly the shape that earns a 429. Requests are queued per host so we stay
+ * a polite client, and a throttled request is retried rather than surfaced as
+ * a failure the model has to reason about.
+ */
+const MAX_CONCURRENT_PER_HOST = 3;
+
+interface HostQueue {
+	active: number;
+	waiting: (() => void)[];
+}
+
+const queues = new Map<string, HostQueue>();
+
+async function withHostSlot<T>(url: string, run: () => Promise<T>): Promise<T> {
+	const host = new URL(url).host;
+	const queue = queues.get(host) ?? { active: 0, waiting: [] };
+	queues.set(host, queue);
+
+	if (queue.active >= MAX_CONCURRENT_PER_HOST) {
+		await new Promise<void>((resolve) => queue.waiting.push(resolve));
+	}
+	queue.active += 1;
+
+	try {
+		return await run();
+	} finally {
+		queue.active -= 1;
+		queue.waiting.shift()?.();
+	}
+}
+
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+
+function retryDelay(response: Response, attempt: number): number {
+	const header = Number(response.headers.get('retry-after'));
+	if (Number.isFinite(header) && header > 0) return Math.min(header * 1000, 4000);
+	// 400ms, 900ms — enough for a throttle window without stalling a turn.
+	return 400 + attempt * 500;
+}
+
 export interface FetchOptions {
 	source: string;
 	signal?: AbortSignal;
@@ -56,15 +102,12 @@ export interface FetchOptions {
 	timeoutMs?: number;
 }
 
-async function request(url: string, options: FetchOptions): Promise<Response> {
+async function attempt(url: string, options: FetchOptions): Promise<Response> {
 	const timeout = AbortSignal.timeout(options.timeoutMs ?? 15_000);
-	const signal = options.signal
-		? AbortSignal.any([options.signal, timeout])
-		: timeout;
+	const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
 
-	let response: Response;
 	try {
-		response = await fetch(url, {
+		return await fetch(url, {
 			signal,
 			headers: {
 				// eCFR rejects uncompressed requests to the versioner outright, and
@@ -83,15 +126,35 @@ async function request(url: string, options: FetchOptions): Promise<Response> {
 			options.source
 		);
 	}
+}
 
-	if (!response.ok) {
+async function request(url: string, options: FetchOptions): Promise<Response> {
+	return withHostSlot(url, async () => {
+		let last: Response | null = null;
+
+		for (let tries = 0; tries < MAX_ATTEMPTS; tries += 1) {
+			const response = await attempt(url, options);
+			if (response.ok) return response;
+
+			last = response;
+			if (!RETRY_STATUSES.has(response.status)) break;
+			if (tries === MAX_ATTEMPTS - 1) break;
+
+			// Drain the body so the connection can be reused.
+			await response.arrayBuffer().catch(() => {});
+			await new Promise((resolve) => setTimeout(resolve, retryDelay(response, tries)));
+			if (options.signal?.aborted) break;
+		}
+
+		const status = last?.status ?? 0;
 		throw new SourceError(
-			`${options.source} returned ${response.status}.`,
+			status === 429
+				? `${options.source} is rate-limiting this request. Wait a moment and try one lookup at a time.`
+				: `${options.source} returned ${status}.`,
 			options.source,
-			response.status
+			status
 		);
-	}
-	return response;
+	});
 }
 
 export async function fetchJson<T>(url: string, options: FetchOptions): Promise<T> {
