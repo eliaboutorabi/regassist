@@ -17,6 +17,7 @@ import {
 import { documentsPlugin, type DocumentStore, type StoredDocument } from './documents.js';
 import { ecfrPlugin } from './ecfr.js';
 import { federalRegisterPlugin } from './federal-register.js';
+import { loopGuardPlugin } from './loop-guard.js';
 import { reviewPlugin } from './review.js';
 
 export interface HarnessOptions {
@@ -39,7 +40,8 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 		agentPlugin,
 		ecfrPlugin,
 		federalRegisterPlugin,
-		reviewPlugin
+		reviewPlugin,
+		loopGuardPlugin
 	);
 
 	const documents = ctx.require<DocumentStore>('documents');

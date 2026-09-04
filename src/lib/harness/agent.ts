@@ -32,7 +32,7 @@ export interface AgentRunOptions {
 	apiKey: string;
 	model: string;
 	signal?: AbortSignal;
-	/** Guard against a tool-calling model that never settles. */
+	/** Guard against a tool-calling model that never settles. Defaults to 10. */
 	maxSteps?: number;
 	maxOutputTokens?: number;
 }
@@ -44,7 +44,7 @@ export class AgentService {
 	async *run(options: AgentRunOptions): AsyncGenerator<AgentEvent> {
 		const llm = this.ctx.require<LLMService>('llm');
 		const tools = this.ctx.require<ToolRegistry>('tools');
-		const maxSteps = options.maxSteps ?? 6;
+		const maxSteps = options.maxSteps ?? 10;
 		const messages: ChatMessage[] = [...options.messages];
 
 		for (let step = 0; step < maxSteps; step += 1) {
@@ -147,7 +147,7 @@ export class AgentService {
 
 		yield {
 			type: 'error',
-			message: `The assistant kept calling tools past ${maxSteps} steps and was stopped.`
+			message: `Verity kept looking things up past ${maxSteps} steps without settling on an answer, so the turn was stopped. Try asking for one specific thing.`
 		};
 	}
 }

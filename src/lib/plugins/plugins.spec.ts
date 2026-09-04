@@ -151,3 +151,90 @@ describe('harness assembly', () => {
 		ctx.dispose();
 	});
 });
+
+describe('loop guard', () => {
+	/** review_document is entirely local, so the guard is testable offline. */
+	async function localHarness() {
+		return createHarness({
+			documents: [
+				{ id: 'memo', name: 'Memo', kind: 'paste', text: 'Client meals are fully deductible.' }
+			]
+		});
+	}
+
+	it('refuses an identical repeat and says what to do instead', async () => {
+		const ctx = await localHarness();
+		const tools = ctx.require<ToolRegistry>('tools');
+		const call = { name: 'review_document', arguments: { document: 'memo' } };
+
+		const first = await tools.execute({ callId: '1', ...call });
+		const second = await tools.execute({ callId: '2', ...call });
+
+		expect(first.isError).toBe(false);
+		expect(second.isError).toBe(true);
+		expect(second.content[0].text).toMatch(/already ran review_document/);
+		ctx.dispose();
+	});
+
+	it('treats a differently-cased or spaced argument as the same call', async () => {
+		const ctx = await localHarness();
+		const tools = ctx.require<ToolRegistry>('tools');
+
+		await tools.execute({ callId: '1', name: 'review_document', arguments: { document: 'memo' } });
+		const repeat = await tools.execute({
+			callId: '2',
+			name: 'review_document',
+			arguments: { document: '  MEMO  ' }
+		});
+
+		expect(repeat.isError).toBe(true);
+		ctx.dispose();
+	});
+
+	it('does not confuse two different queries', async () => {
+		const ctx = await localHarness();
+		const tools = ctx.require<ToolRegistry>('tools');
+
+		const first = await tools.execute({
+			callId: '1',
+			name: 'review_document',
+			arguments: { document: 'memo' }
+		});
+		const second = await tools.execute({
+			callId: '2',
+			name: 'review_document',
+			arguments: { document: 'memo', minSeverity: 'high' }
+		});
+
+		expect(first.isError).toBe(false);
+		expect(second.isError).toBe(false);
+		ctx.dispose();
+	});
+
+	it('lets a cheap local tool repeat freely', async () => {
+		const ctx = await createHarness();
+		const tools = ctx.require<ToolRegistry>('tools');
+
+		const first = await tools.execute({ callId: '1', name: 'list_documents', arguments: {} });
+		const second = await tools.execute({ callId: '2', name: 'list_documents', arguments: {} });
+
+		expect(first.isError).toBe(false);
+		expect(second.isError).toBe(false);
+		ctx.dispose();
+	});
+});
+
+describe('eCFR citation guidance', () => {
+	it('rejects a part number with an explanation the model can act on', async () => {
+		const ctx = await createHarness();
+		const result = await ctx.require<ToolRegistry>('tools').execute({
+			callId: '1',
+			name: 'read_regulation',
+			arguments: { title: 26, section: '280A' }
+		});
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toMatch(/part number, not a section number/);
+		ctx.dispose();
+	});
+});

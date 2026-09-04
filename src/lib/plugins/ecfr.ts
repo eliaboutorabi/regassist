@@ -42,7 +42,8 @@ export const ecfrPlugin = {
 					query: {
 						type: 'string',
 						required: true,
-						description: 'Keywords in regulatory language. Two to six words works best.'
+						description:
+							'Two to five words of regulatory language. Longer queries match fewer sections, not more — prefer "business use of home" over "exclusive use home office principal place of business".'
 					},
 					title: {
 						type: 'integer',
@@ -71,7 +72,11 @@ export const ecfrPlugin = {
 							return [
 								{
 									type: 'text',
-									text: `No CFR section matched "${args.query}". Try broader or more regulatory wording, or drop the title filter.`
+									text: [
+										`No CFR section matched "${args.query}".`,
+										'Shorten the query — the index matches phrases, so three or four words find far more than eight.',
+										'Try the core legal term on its own ("business use of home", "exclusive use"), and drop the title filter if that still returns nothing.'
+									].join(' ')
 								}
 							];
 						}

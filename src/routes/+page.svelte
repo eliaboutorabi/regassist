@@ -34,6 +34,8 @@
 	let starting = $state(false);
 
 	let textBusy = $state(false);
+	/** True from the first text delta until the turn settles. */
+	let textStreaming = $state(false);
 	let abort: AbortController | null = null;
 
 	const character = $derived(CHARACTERS[session.character]);
@@ -48,9 +50,11 @@
 					: voiceStatus === 'listening'
 						? 'listening'
 						: 'idle'
-			: textBusy
-				? 'thinking'
-				: 'idle'
+			: textStreaming
+				? 'speaking'
+				: textBusy
+					? 'thinking'
+					: 'idle'
 	);
 
 	const voice = new VoiceSession({
@@ -171,7 +175,12 @@
 				signal: abort.signal
 			})) {
 				conversation.applyAgentEvent(event);
-				if (event.type === 'text') stage?.appendTranscript(event.delta);
+				if (event.type === 'text') {
+					textStreaming = true;
+					stage?.appendTranscript(event.delta);
+				}
+				// A tool call between paragraphs stops the printer until prose resumes.
+				if (event.type === 'tool-call') textStreaming = false;
 			}
 		} catch (cause) {
 			if (!abort.signal.aborted) {
@@ -182,6 +191,7 @@
 		} finally {
 			conversation.settleAssistant();
 			textBusy = false;
+			textStreaming = false;
 			conversation.busy = false;
 			abort = null;
 		}
@@ -191,6 +201,7 @@
 		abort?.abort();
 		conversation.settleAssistant();
 		textBusy = false;
+		textStreaming = false;
 		conversation.busy = false;
 	}
 
@@ -310,6 +321,7 @@
 					mode={robotMode}
 					{audioLevel}
 					{audible}
+					printing={textStreaming}
 				/>
 			</div>
 

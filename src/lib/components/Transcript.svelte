@@ -123,12 +123,29 @@
 		font-weight: 660;
 	}
 
+	/* Tailwind's reset strips list markers; prose is where we want them back. */
 	.prose :global(ul),
 	.prose :global(ol) {
 		margin: 0.2em 0 0.8em;
-		padding-left: 1.25em;
+		padding-left: 1.35em;
 		display: grid;
 		gap: 0.3em;
+	}
+
+	.prose :global(ul) {
+		list-style: disc;
+	}
+
+	.prose :global(ol) {
+		list-style: decimal;
+	}
+
+	.prose :global(li) {
+		padding-left: 0.15em;
+	}
+
+	.prose :global(li::marker) {
+		color: var(--muted);
 	}
 
 	.prose :global(code) {

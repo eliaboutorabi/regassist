@@ -56,7 +56,7 @@
 				: ''}
 		</p>
 		<ul class="hits">
-			{#each result.hits as hit (hit.citation)}
+			{#each result.hits as hit, index (`${hit.citation}#${index}`)}
 				<li>
 					<a href={hit.url} target="_blank" rel="noopener noreferrer">
 						<span class="citation">{hit.citation}</span>
@@ -86,7 +86,7 @@
 	{:else if result?.card === 'changes'}
 		<p class="lead">Rule-making matching “{result.query}”</p>
 		<ul class="changes">
-			{#each result.changes as change (change.url)}
+			{#each result.changes as change, index (`${change.url}#${index}`)}
 				<li>
 					<a href={change.url} target="_blank" rel="noopener noreferrer">{change.title}</a>
 					<p class="meta">

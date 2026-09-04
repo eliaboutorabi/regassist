@@ -21,9 +21,21 @@
 		mode: 'idle' | 'listening' | 'thinking' | 'speaking';
 		audioLevel?: number;
 		audible?: boolean;
+		/**
+		 * Text mode has no waveform, but the receipt only advances while output
+		 * is audible. Setting this synthesises a printer-like envelope so a typed
+		 * answer prints onto the paper exactly as a spoken one does.
+		 */
+		printing?: boolean;
 	}
 
-	let { character, mode, audioLevel = 0, audible = false }: Props = $props();
+	let {
+		character,
+		mode,
+		audioLevel = 0,
+		audible = false,
+		printing = false
+	}: Props = $props();
 
 	let canvas = $state<HTMLCanvasElement | null>(null);
 	let robot: VerityRobot | null = null;
@@ -97,7 +109,22 @@
 			resize();
 			const delta = Math.min((now - previous) / 1000, 0.05);
 			previous = now;
-			robot?.update(now / 1000, delta);
+
+			if (robot) {
+				if (printing) {
+					// Two detuned sines read as a mechanism running rather than a
+					// pulse; the floor keeps the paper moving between beats.
+					const seconds = now / 1000;
+					const wobble =
+						0.28 + 0.16 * Math.sin(seconds * 11.4) + 0.1 * Math.sin(seconds * 4.7 + 1.3);
+					robot.setAudioLevel(Math.max(0.12, wobble));
+					robot.setOutputAudioActive(true);
+				} else {
+					robot.setAudioLevel(audioLevel);
+					robot.setOutputAudioActive(audible);
+				}
+				robot.update(now / 1000, delta);
+			}
 			gl.render(world, camera);
 		};
 
@@ -142,10 +169,6 @@
 		robot?.setMode(mode);
 	});
 
-	$effect(() => {
-		robot?.setAudioLevel(audioLevel);
-		robot?.setOutputAudioActive(audible);
-	});
 </script>
 
 <div class="stage" data-mode={mode}>

@@ -9,25 +9,13 @@
 
 import type { RegulationCitation } from '$lib/harness';
 import { decodeEntities, fetchJson, fetchText, stripHighlights, SourceError } from './http.js';
+import { searchHeadings, type IndexedSection } from './ecfr-index.js';
+import { RELEVANT_TITLES, TITLE_NAMES } from './ecfr-titles.js';
 
 const SOURCE = 'the eCFR';
 const BASE = 'https://www.ecfr.gov/api';
 
-/** The titles that carry tax, financial and reporting regulation. */
-export const RELEVANT_TITLES = [
-	{ number: 12, name: 'Banks and Banking', blurb: 'Bank capital, lending, and Federal Reserve rules' },
-	{ number: 17, name: 'Commodity and Securities Exchanges', blurb: 'SEC and CFTC rules, including Regulation S-X accounting' },
-	{ number: 26, name: 'Internal Revenue', blurb: 'The Treasury regulations under the Internal Revenue Code' },
-	{ number: 29, name: 'Labor', blurb: 'ERISA, employee benefit plans, and wage rules' },
-	{ number: 31, name: 'Money and Finance: Treasury', blurb: 'Treasury, FinCEN, and anti-money-laundering rules' },
-	{ number: 48, name: 'Federal Acquisition Regulations', blurb: 'Government contract cost accounting standards' }
-] as const;
-
-export type RelevantTitle = (typeof RELEVANT_TITLES)[number]['number'];
-
-const TITLE_NAMES = new Map<number, string>(
-	RELEVANT_TITLES.map((title) => [title.number, title.name])
-);
+export { RELEVANT_TITLES, type RelevantTitle } from './ecfr-titles.js';
 
 interface SearchHierarchy {
 	title: string | null;
@@ -97,8 +85,20 @@ export interface SearchOutcome {
 	totalCount: number;
 }
 
-export async function searchRegulations(options: SearchOptions): Promise<SearchOutcome> {
-	const limit = Math.min(Math.max(options.limit ?? 6, 1), 20);
+/** Project one indexed heading match into the shared citation shape. */
+function fromIndex(section: IndexedSection): RegulationCitation {
+	return {
+		citation: `${section.title} CFR § ${section.identifier}`,
+		heading: section.heading,
+		hierarchy: section.context
+			? `Title ${section.title} › ${section.context}`
+			: `Title ${section.title}`,
+		url: `https://www.ecfr.gov/current/title-${section.title}/section-${section.identifier}`,
+		titleName: TITLE_NAMES.get(section.title)
+	};
+}
+
+async function fullTextSearch(options: SearchOptions, limit: number): Promise<SearchOutcome> {
 	const params = new URLSearchParams({
 		query: options.query,
 		per_page: String(limit),
@@ -107,10 +107,11 @@ export async function searchRegulations(options: SearchOptions): Promise<SearchO
 	});
 	if (options.title) params.set('hierarchy[title]', String(options.title));
 
-	const payload = await fetchJson<SearchResponse>(
-		`${BASE}/search/v1/results?${params}`,
-		{ source: SOURCE, signal: options.signal, ttlMs: 15 * 60_000 }
-	);
+	const payload = await fetchJson<SearchResponse>(`${BASE}/search/v1/results?${params}`, {
+		source: SOURCE,
+		signal: options.signal,
+		ttlMs: 15 * 60_000
+	});
 
 	const hits = (payload.results ?? [])
 		.filter((result) => !result.removed)
@@ -126,13 +127,53 @@ export async function searchRegulations(options: SearchOptions): Promise<SearchO
 				url: urlFor(result.hierarchy),
 				excerpt: result.full_text_excerpt ? stripHighlights(result.full_text_excerpt) : undefined,
 				titleName: result.hierarchy.title
-					? TITLE_NAMES.get(Number(result.hierarchy.title)) ??
-						stripHighlights(result.headings?.title ?? '')
+					? (TITLE_NAMES.get(Number(result.hierarchy.title)) ??
+						stripHighlights(result.headings?.title ?? ''))
 					: undefined
 			} satisfies RegulationCitation;
 		});
 
 	return { hits, totalCount: payload.meta?.total_count ?? hits.length };
+}
+
+/**
+ * Find sections by subject.
+ *
+ * Heading matches come first because they answer "which provision is this?"
+ * precisely; full-text matches fill the rest, because they answer "where is
+ * this phrase used?" — a different and less often wanted question. Neither
+ * source alone is good enough: headings miss anything the drafter did not name
+ * in the title, and full text drowns a conceptual query in incidental usage.
+ */
+export async function searchRegulations(options: SearchOptions): Promise<SearchOutcome> {
+	const limit = Math.min(Math.max(options.limit ?? 6, 1), 20);
+
+	const [headings, fullText] = await Promise.all([
+		searchHeadings({
+			query: options.query,
+			titles: options.title ? [options.title] : undefined,
+			limit,
+			signal: options.signal
+		}).catch(() => [] as IndexedSection[]),
+		fullTextSearch(options, limit).catch(() => ({ hits: [], totalCount: 0 }) as SearchOutcome)
+	]);
+
+	const seen = new Set<string>();
+	const hits: RegulationCitation[] = [];
+
+	for (const candidate of [...headings.map(fromIndex), ...fullText.hits]) {
+		// The same section can surface from both sources, or twice from full
+		// text when several of its paragraphs match. One card per provision.
+		if (seen.has(candidate.citation)) continue;
+		seen.add(candidate.citation);
+		hits.push(candidate);
+		if (hits.length >= limit) break;
+	}
+
+	return {
+		hits,
+		totalCount: Math.max(fullText.totalCount, hits.length)
+	};
 }
 
 // ------------------------------------------------------------ section text
@@ -196,14 +237,34 @@ export async function readSection(request: SectionRequest): Promise<SectionText>
 	// A section number's leading component is its part: 1.162-1 lives in part 1,
 	// 240.10b-5 in part 240. The versioner needs both to scope the extraction.
 	const part = section.split('.')[0];
-	if (!part) throw new SourceError(`"${request.section}" is not a section number.`, SOURCE);
+	if (!part || !section.includes('.')) {
+		throw new SourceError(
+			`"${request.section}" is a part number, not a section number. Sections look like "1.280A-2" or "240.10b-5" — run search_regulations first and read one of the citations it returns.`,
+			SOURCE
+		);
+	}
 
 	const date = await currentDateFor(request.title, request.signal);
 	const params = new URLSearchParams({ part, section });
-	const xml = await fetchText(
-		`${BASE}/versioner/v1/full/${date}/title-${request.title}.xml?${params}`,
-		{ source: SOURCE, signal: request.signal, ttlMs: 60 * 60_000, accept: 'application/xml' }
-	);
+
+	let xml: string;
+	try {
+		xml = await fetchText(
+			`${BASE}/versioner/v1/full/${date}/title-${request.title}.xml?${params}`,
+			{ source: SOURCE, signal: request.signal, ttlMs: 60 * 60_000, accept: 'application/xml' }
+		);
+	} catch (cause) {
+		// A 404 here means the citation does not exist, which the model can act
+		// on; an HTTP status on its own only invites a retry of the same guess.
+		if (cause instanceof SourceError && cause.status === 404) {
+			throw new SourceError(
+				`${request.title} CFR § ${section} does not exist in the current eCFR. Use search_regulations to find the real citation rather than guessing another number.`,
+				SOURCE,
+				404
+			);
+		}
+		throw cause;
+	}
 
 	const text = xmlToText(xml);
 	if (!text) {
