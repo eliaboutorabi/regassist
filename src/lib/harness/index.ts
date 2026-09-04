@@ -46,6 +46,9 @@ export {
 	agentPlugin,
 	type AgentEvent,
 	type AgentRunOptions,
+	type RequestError,
+	type RetryAction,
 	type Steer,
 	type TurnStopping
 } from './agent.js';
+export { DEFAULT_TOOL_DEADLINE_MS, deadlinePlugin, retryPlugin } from './resilience.js';

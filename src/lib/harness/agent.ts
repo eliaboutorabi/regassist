@@ -41,6 +41,31 @@ export interface Steer {
 	reason: string;
 }
 
+/**
+ * A model request failed before it produced anything.
+ *
+ * Listeners return a retry action or nothing, in which case the error stands.
+ * Only ever dispatched when the step emitted no text and no tool call — a
+ * stream that half-succeeded cannot be replayed without repeating itself, so
+ * that failure is surfaced rather than retried.
+ *
+ * Modelled on the upstream `agent/request-error` waterfall.
+ */
+export interface RequestError {
+	readonly error: unknown;
+	readonly status?: number;
+	/** How many times this step has already been retried. */
+	readonly attempt: number;
+}
+
+export interface RetryAction {
+	retry: true;
+	/** How long to wait first. */
+	delayMs: number;
+	/** Shown to nobody; kept for diagnostics. */
+	reason: string;
+}
+
 export type AgentEvent =
 	| { type: 'text'; delta: string }
 	| { type: 'reasoning'; summary: string }
@@ -100,55 +125,100 @@ export class AgentService {
 
 		for (let step = 0; step < maxSteps; step += 1) {
 			let text = '';
-			const calls: ToolCallRecord[] = [];
+			let calls: ToolCallRecord[] = [];
 			let failed = false;
+			let attempt = 0;
 
-			try {
-				const stream = llm.stream({
-					messages,
-					tools: tools.schemas(),
-					model: options.model,
-					apiKey: options.apiKey,
-					signal: options.signal,
-					maxOutputTokens: options.maxOutputTokens
-				});
+			// One step, retried while it has produced nothing. A stream that
+			// half-succeeded cannot be replayed without repeating itself.
+			for (;;) {
+				text = '';
+				calls = [];
+				failed = false;
+				const pending: AgentEvent[] = [];
+				let started = false;
+				let failure: { error: unknown; status?: number } | null = null;
 
-				for await (const event of stream) {
-					switch (event.type) {
-						case 'text-delta':
-							text += event.text;
-							yield { type: 'text', delta: event.text };
-							break;
-						case 'reasoning':
-							yield { type: 'reasoning', summary: event.summary };
-							break;
-						case 'tool-call':
-							calls.push(event.call);
-							yield {
-								type: 'tool-call',
-								callId: event.call.callId,
-								name: event.call.name,
-								label: tools.label(event.call.name),
-								view: tools.presentCall(event.call.name, event.call.arguments)
-							};
-							break;
-						case 'error':
-							failed = true;
-							yield { type: 'error', message: event.message, status: event.status };
-							break;
-						case 'done':
-							break;
+				try {
+					const stream = llm.stream({
+						messages,
+						tools: tools.schemas(),
+						model: options.model,
+						apiKey: options.apiKey,
+						signal: options.signal,
+						maxOutputTokens: options.maxOutputTokens
+					});
+
+					for await (const event of stream) {
+						switch (event.type) {
+							case 'text-delta':
+								started = true;
+								text += event.text;
+								pending.push({ type: 'text', delta: event.text });
+								break;
+							case 'reasoning':
+								pending.push({ type: 'reasoning', summary: event.summary });
+								break;
+							case 'tool-call':
+								started = true;
+								calls.push(event.call);
+								pending.push({
+									type: 'tool-call',
+									callId: event.call.callId,
+									name: event.call.name,
+									label: tools.label(event.call.name),
+									view: tools.presentCall(event.call.name, event.call.arguments)
+								});
+								break;
+							case 'error':
+								failure = { error: new ProviderError(event.message, event.status), status: event.status };
+								break;
+							case 'done':
+								break;
+						}
+						// Nothing is yielded until the step is past the point where a
+						// retry is possible, so a retried step never double-prints.
+						if (started) {
+							for (const queued of pending.splice(0)) yield queued;
+						}
 					}
+				} catch (error) {
+					if (options.signal?.aborted) return;
+					failure = {
+						error,
+						status: error instanceof ProviderError ? error.status : undefined
+					};
 				}
-			} catch (error) {
+
+				if (!failure) {
+					for (const queued of pending) yield queued;
+					break;
+				}
+
+				const action =
+					!started && !options.signal?.aborted
+						? this.ctx.bail<RetryAction>('agent/request-error', {
+								error: failure.error,
+								status: failure.status,
+								attempt
+							} satisfies RequestError)
+						: undefined;
+
+				if (!action) {
+					for (const queued of pending) yield queued;
+					yield {
+						type: 'error',
+						message:
+							failure.error instanceof Error ? failure.error.message : String(failure.error),
+						status: failure.status
+					};
+					failed = true;
+					break;
+				}
+
+				attempt += 1;
+				await new Promise((resolve) => setTimeout(resolve, action.delayMs));
 				if (options.signal?.aborted) return;
-				const provider = error instanceof ProviderError ? error : null;
-				yield {
-					type: 'error',
-					message: error instanceof Error ? error.message : String(error),
-					status: provider?.status
-				};
-				return;
 			}
 
 			if (failed) return;

@@ -118,8 +118,11 @@ describe('auditTurn', () => {
 		expect(auditTurn(draft, record)).toEqual([]);
 	});
 
-	it('says nothing about an empty draft', () => {
-		expect(auditTurn('   ', [searched('x')])).toEqual([]);
+	it('objects to an empty draft when the turn did work', () => {
+		// Superseded by the "answer that never arrives" case below: a blank
+		// bubble under a stack of cards reads as the app being broken.
+		const [objection] = auditTurn('   ', [searched('x')]);
+		expect(objection.reason).toMatch(/did not answer/);
 	});
 });
 
@@ -150,3 +153,14 @@ describe('paragraph citations', () => {
 		expect(unread[0].instruction).toContain('26 CFR § 1.162-17');
 	});
 });
+
+describe('an answer that never arrives', () => {
+	it('objects when the turn looked things up and then said nothing', () => {
+		const [objection] = auditTurn('', [searched('26 CFR § 1.162-1 Business expenses.')]);
+		expect(objection.reason).toMatch(/did not answer/);
+	});
+
+	it('says nothing when there was no work to report either', () => {
+		expect(auditTurn('', [])).toEqual([]);
+	});
+})

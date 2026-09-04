@@ -9,8 +9,10 @@
 import {
 	agentPlugin,
 	Context,
+	deadlinePlugin,
 	llmPlugin,
 	openaiPlugin,
+	retryPlugin,
 	toolsPlugin,
 	type ToolRegistry
 } from '$lib/harness';
@@ -62,6 +64,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 	const ctx = new Context();
 
 	await ctx.use(toolsPlugin, llmPlugin, documentsPlugin, openaiPlugin, agentPlugin);
+
+	// Failures that resolve themselves, handled before anything else sees them.
+	await ctx.use(retryPlugin, deadlinePlugin());
 
 	if (options.credentials) ctx.provide('credentials', options.credentials);
 

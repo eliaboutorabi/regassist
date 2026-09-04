@@ -103,6 +103,57 @@ lives rather than as a search to retry.
 State and local tax, foreign law, and standards outside the CFR (FASB, PCAOB)
 are out of scope, and it says so rather than improvising.
 
+## She checks her own answer
+
+Before an answer reaches you, the turn stops at a checkpoint. Anything that
+objects steers, and the model gets one more step to put it right — so what you
+see is the corrected answer, not a draft with an apology under it. The badge
+beneath each answer says which happened.
+
+Two things object.
+
+**The mechanical check** compares the answer against what the turn actually
+did, and nothing else. Asking a model whether it is confident produces
+confident answers; asking whether the citation it just used appears anywhere in
+the tools it just called produces a fact. It catches:
+
+- a citation no tool call returned;
+- a requirement described from a search excerpt rather than the section text;
+- an action claimed but never taken — "here are the passages marked up" from a
+  turn that never called the markup tool;
+- a failed lookup the answer does not own up to;
+- a turn that did the work and then said nothing.
+
+Citations compare by section, so pointing at § 1.274-5(c)(2)(iii) after reading
+§ 1.274-5 is precision rather than invention.
+
+**The critic** is one call to a cheap model that reads the draft back against
+the tool results, for what a regex cannot see: a dropped condition, a citation
+attached to a claim it does not support, the actual question going unanswered.
+Its prompt refuses the shapes that waste a round trip — "add more detail",
+"consider caveats", tone — and the parser drops anything vague that comes back
+anyway. Empty is the normal outcome. Switch it off in settings if you would
+rather not pay for the call.
+
+Both found real defects on their first live runs: three constructed
+sub-paragraph citations, and a draft attributing text to § 1.274-5(c)(2)(iii)(B)
+that the excerpt did not contain.
+
+## When things go wrong
+
+- A model request that fails **before producing anything** is retried twice with
+  backoff — a rate limit or a bad gateway should not end a turn. A request that
+  has already started streaming is never retried, because replaying it would
+  repeat what you have already read.
+- Every tool call has a deadline. The source clients have their own timeouts;
+  this is the backstop for a body that streams forever or a promise that never
+  settles, so one wedged call cannot hold a turn open indefinitely.
+- The eCFR and Federal Register are queued per host and retried on 429/5xx —
+  a review fires five lookups at once, which is exactly the shape that earns a
+  rate limit.
+- A dropped voice connection reconnects itself twice, replaying the live
+  transcript, before it gives up and says so.
+
 ## Architecture
 
 ### The harness
@@ -135,8 +186,21 @@ src/lib/harness/
 ├── tools.ts       Registry, execution pipeline, card presenters
 ├── llm.ts         The provider seam
 ├── openai.ts      OpenAI adapter over the Responses API
-└── agent.ts       The loop: stream, call tools, feed back, repeat
+├── resilience.ts  Retry and deadline policies, as replaceable plugins
+└── agent.ts       The loop: stream, call tools, check, feed back, repeat
 ```
+
+The events a plugin can hook, following the upstream contract:
+
+| Event | Mode | For |
+| --- | --- | --- |
+| `tools/pre-execute` | bail | Allow, deny or ask before a call runs |
+| `ctx.tools.guard()` | — | A monotonic denial no later listener can undo |
+| `tools/execute` | waterfall | Wrap dispatch — deadlines, retries, metrics |
+| `tools/post-execute` | serial | Attach model-facing context to a result |
+| `tools/result` | emit | Observe the frozen outcome |
+| `agent/request-error` | bail | Return a retry action, or let the error stand |
+| `agent/turn-stopping` | parallel | Object, and the turn reopens for one more step |
 
 ### The plugins
 
@@ -146,6 +210,8 @@ src/lib/plugins/
 ├── federal-register.ts find_rule_changes
 ├── review.ts           review_document, list_documents
 ├── highlight.ts        highlight_document
+├── verify.ts           The mechanical self-check
+├── critic.ts           The second opinion
 ├── review-rules.ts     27 rules — what a reviewer circles in red
 ├── documents.ts        Per-request document service
 ├── loop-guard.ts       Refuses an exact repeated call

@@ -108,7 +108,19 @@ export interface Objection {
 /** The whole check, as a pure function so it can be tested without a model. */
 export function auditTurn(draft: string, record: readonly ToolResult[]): Objection[] {
 	const objections: Objection[] = [];
-	if (!draft.trim()) return objections;
+
+	// A turn that did the work and then said nothing. Rare, but it shows as a
+	// blank bubble under a stack of cards, which reads as the app being broken.
+	if (!draft.trim()) {
+		if (record.some((result) => !result.isError)) {
+			objections.push({
+				reason: 'ran the lookups but did not answer',
+				instruction:
+					'You made the lookups and then said nothing. Give the answer now, in prose, using what those lookups returned.'
+			});
+		}
+		return objections;
+	}
 
 	const cited = citationsIn(draft);
 	const seen = citationsSeen(record);

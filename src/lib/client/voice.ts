@@ -39,6 +39,14 @@ export interface VoiceHandlers {
 	onError(message: string): void;
 	/** Called every animation frame with the output envelope, 0–1. */
 	onAudioLevel(level: number, audible: boolean): void;
+	/**
+	 * The conversation so far, asked for at connect time.
+	 *
+	 * A callback rather than a start option because a reconnect happens in the
+	 * middle of a conversation: a snapshot taken when the session opened would
+	 * replay a stale transcript and lose everything said since.
+	 */
+	transcript?(): PriorTurn[];
 }
 
 /** One prior turn, replayed into a new voice session for continuity. */
@@ -53,8 +61,6 @@ export interface VoiceStartOptions {
 	documents: StoredDocument[];
 	/** Speak an opening line without waiting for the user. */
 	greet?: boolean;
-	/** Conversation so far, so picking up the microphone continues the thread. */
-	history?: PriorTurn[];
 	/** Knowledge, skills and the tool packs those skills need. */
 	brain?: unknown;
 }
@@ -87,6 +93,10 @@ export class VoiceSession {
 	#calledThisResponse = 0;
 	#documents: StoredDocument[] = [];
 	#brain: unknown = undefined;
+	/** What the last successful start was given, so a drop can be recovered. */
+	#lastStart: VoiceStartOptions | null = null;
+	#reconnects = 0;
+	#reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 	#status: VoiceStatus = 'idle';
 	#muted = false;
 
@@ -132,11 +142,11 @@ export class VoiceSession {
 
 			pc.addEventListener('track', (event) => this.#attachRemoteAudio(event.streams[0]));
 			pc.addEventListener('connectionstatechange', () => {
-				if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-					this.#setStatus('error', 'The voice connection dropped.');
-					this.handlers.onError('The voice connection dropped. Tap to reconnect.');
-					this.stop();
-				}
+				if (pc.connectionState !== 'failed' && pc.connectionState !== 'disconnected') return;
+				// Only the live connection may trigger recovery; a stale one whose
+				// replacement is already running must not tear the new one down.
+				if (this.#pc !== pc) return;
+				this.#recover();
 			});
 
 			for (const track of this.#stream.getAudioTracks()) pc.addTrack(track, this.#stream);
@@ -146,7 +156,7 @@ export class VoiceSession {
 			this.#channel = channel;
 			channel.addEventListener('open', () => {
 				this.#setStatus('listening');
-				this.#seedHistory(options.history ?? []);
+				this.#seedHistory(this.handlers.transcript?.() ?? []);
 				if (options.greet) this.#requestGreeting();
 			});
 			channel.addEventListener('message', (message) => {
@@ -176,6 +186,8 @@ export class VoiceSession {
 				);
 			}
 			await pc.setRemoteDescription({ type: 'answer', sdp });
+			this.#lastStart = options;
+			this.#reconnects = 0;
 		} catch (cause) {
 			const message = describeVoiceError(cause);
 			this.#setStatus('error', message);
@@ -185,9 +197,48 @@ export class VoiceSession {
 		}
 	}
 
-	stop(): void {
+	/**
+	 * Put a dropped connection back.
+	 *
+	 * A realtime session over WebRTC drops for ordinary reasons — a network
+	 * blip, a laptop lid, a handover between access points — and losing the
+	 * whole conversation to one of those is a bad way to end a demo. The
+	 * transcript is replayed into the new session, so the recovery is silent
+	 * apart from a beat of "reconnecting".
+	 *
+	 * Twice, then it stops and says so: past that it is not a blip.
+	 */
+	#recover(): void {
+		const options = this.#lastStart;
+		const attempt = this.#reconnects;
+
+		this.#teardown();
+
+		if (!options || attempt >= 2) {
+			this.#setStatus('error', 'The voice connection dropped.');
+			this.handlers.onError('The voice connection dropped. Tap the microphone to start again.');
+			return;
+		}
+
+		this.#reconnects = attempt + 1;
+		this.#setStatus('connecting', 'Reconnecting…');
+
+		this.#reconnectTimer = setTimeout(
+			() => {
+				void this.start({ ...options, greet: false }).catch(() => {
+					// start() has already reported it through onError.
+				});
+			},
+			400 + attempt * 900
+		);
+	}
+
+	/** Tear down the transport without forgetting how to rebuild it. */
+	#teardown(): void {
 		cancelAnimationFrame(this.#frame);
 		this.#frame = 0;
+		if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer);
+		this.#reconnectTimer = null;
 
 		if (this.#channel?.readyState === 'open') this.#channel.close();
 		this.#pc?.close();
@@ -208,6 +259,13 @@ export class VoiceSession {
 		this.#calledThisResponse = 0;
 		this.#responseClosed = true;
 		this.handlers.onAudioLevel(0, false);
+	}
+
+	stop(): void {
+		// A deliberate stop is not a drop: forget how to come back.
+		this.#lastStart = null;
+		this.#reconnects = 0;
+		this.#teardown();
 		if (this.#status !== 'error') this.#setStatus('idle');
 	}
 

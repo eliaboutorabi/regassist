@@ -83,6 +83,9 @@
 			absorbMarks(view as never);
 		},
 		onError: (message) => conversation.addNotice(message),
+		// Asked for at connect time, including after a reconnect, so a dropped
+		// session comes back knowing everything said before it dropped.
+		transcript: () => conversation.toMessages(),
 		onAudioLevel: (level, isAudible) => {
 			audioLevel = level;
 			audible = isAudible;
@@ -163,8 +166,7 @@
 				documents: documents.payload(),
 				brain: brain.payload(),
 				// Only greet a cold start; mid-conversation, just start listening.
-				greet: conversation.isEmpty,
-				history: conversation.toMessages()
+				greet: conversation.isEmpty
 			});
 			voiceActive = voice.active;
 			stage?.beginResponse();
