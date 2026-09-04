@@ -25,6 +25,7 @@ export {
 	type ToolCallView,
 	type ToolDefinition,
 	type ToolExecution,
+	type ToolGuard,
 	type ToolResult,
 	type ToolResultView,
 	type ToolSchema
@@ -40,4 +41,11 @@ export {
 	type ToolCallRecord
 } from './llm.js';
 export { DEFAULT_MODEL, openaiAdapter, openaiPlugin, selectChatModels } from './openai.js';
-export { AgentService, agentPlugin, type AgentEvent, type AgentRunOptions } from './agent.js';
+export {
+	AgentService,
+	agentPlugin,
+	type AgentEvent,
+	type AgentRunOptions,
+	type Steer,
+	type TurnStopping
+} from './agent.js';

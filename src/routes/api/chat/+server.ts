@@ -39,7 +39,12 @@ export const POST: RequestHandler = async ({ request }) => {
 	const brain = parseBrain(body.brain);
 	const model = typeof body.model === 'string' && body.model ? body.model : DEFAULT_MODEL;
 
-	const ctx = await createHarness({ documents, packs: brain.packs });
+	const ctx = await createHarness({
+		documents,
+		packs: brain.packs,
+		// Only for the duration of this request: the critic makes its own call.
+		credentials: { apiKey, model }
+	});
 	const agent = ctx.require<AgentService>('agent');
 	const encoder = new TextEncoder();
 

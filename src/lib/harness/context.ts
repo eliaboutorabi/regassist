@@ -218,6 +218,11 @@ export class Context {
 		return step(0);
 	}
 
+	/** How many listeners an event has. Lets a producer skip work nobody wants. */
+	listenerCount(event: string): number {
+		return this.#listeners.get(event)?.length ?? 0;
+	}
+
 	#snapshot(event: string): Registration[] {
 		return this.#listeners.get(event)?.slice() ?? [];
 	}

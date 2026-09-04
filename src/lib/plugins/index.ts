@@ -20,9 +20,24 @@ import { federalRegisterPlugin } from './federal-register.js';
 import { highlightPlugin } from './highlight.js';
 import { loopGuardPlugin } from './loop-guard.js';
 import { reviewPlugin } from './review.js';
+import { verifyPlugin } from './verify.js';
+import { criticPlugin } from './critic.js';
 
-/** The tool-owning plugins a caller can mount. */
-export type PackId = 'ecfr' | 'federal-register' | 'review';
+/** The plugins a caller can mount: tool packs, plus the optional critic. */
+export type PackId = 'ecfr' | 'federal-register' | 'review' | 'critic';
+
+/**
+ * What a plugin needs to make a model call of its own.
+ *
+ * The critic runs a second, cheaper request against the same account. Passing
+ * it through a service rather than a prop keeps it out of every signature
+ * between here and there, and it is dropped with the context at turn's end.
+ */
+export interface Credentials {
+	apiKey: string;
+	/** The model the turn itself is using; a check may pick a cheaper one. */
+	model: string;
+}
 
 export interface HarnessOptions {
 	/** Documents to load into the session before the first turn. */
@@ -35,6 +50,8 @@ export interface HarnessOptions {
 	 * free to weigh against everything else in the prompt.
 	 */
 	packs?: readonly PackId[];
+	/** Lets the critic make its own request. Omitted disables it. */
+	credentials?: Credentials;
 }
 
 /**
@@ -46,7 +63,9 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 
 	await ctx.use(toolsPlugin, llmPlugin, documentsPlugin, openaiPlugin, agentPlugin);
 
-	const packs = new Set<PackId>(options.packs ?? ['ecfr', 'federal-register', 'review']);
+	if (options.credentials) ctx.provide('credentials', options.credentials);
+
+	const packs = new Set<PackId>(options.packs ?? ['ecfr', 'federal-register', 'review', 'critic']);
 	// The CFR is the whole point; a caller cannot leave the app with no way to
 	// look anything up.
 	packs.add('ecfr');
@@ -59,6 +78,11 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 	}
 
 	await ctx.plugin(loopGuardPlugin);
+
+	// The mechanical check is free and never wrong, so it is not optional.
+	// The critic costs a model call, so it is a skill the user can switch off.
+	await ctx.plugin(verifyPlugin);
+	if (packs.has('critic') && options.credentials) await ctx.plugin(criticPlugin);
 
 	const documents = ctx.require<DocumentStore>('documents');
 	for (const document of options.documents ?? []) documents.put(document);

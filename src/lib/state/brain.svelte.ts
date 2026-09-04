@@ -28,7 +28,7 @@ export interface Skill {
 }
 
 /** The tool-owning plugins a skill can require. */
-export type PackId = 'ecfr' | 'federal-register' | 'review';
+export type PackId = 'ecfr' | 'federal-register' | 'review' | 'critic';
 
 export const PACKS: Record<PackId, { name: string; detail: string }> = {
 	ecfr: {
@@ -42,6 +42,10 @@ export const PACKS: Record<PackId, { name: string; detail: string }> = {
 	review: {
 		name: 'Document review',
 		detail: 'Scan a loaded document for passages carrying a regulatory exposure.'
+	},
+	critic: {
+		name: 'Second opinion',
+		detail: 'A separate model call that reads the answer back before you see it.'
 	}
 };
 
@@ -71,6 +75,15 @@ const BUILTIN: Skill[] = [
 		enabled: true,
 		instructions:
 			'Lead with the answer in the user’s own words, then the citation that supports it. Do not open with a restatement of the question, and do not pad with what you are about to do.'
+	},
+	{
+		id: 'critic',
+		name: 'Check her own answer before showing it',
+		builtin: true,
+		enabled: true,
+		packs: ['critic'],
+		instructions:
+			'Before an answer is shown, it is read back against what the tools actually returned. Anything asserted that the lookups do not support is corrected first. Costs one extra model call per answer.'
 	},
 	{
 		id: 'show-workings',

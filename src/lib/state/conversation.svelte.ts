@@ -12,7 +12,23 @@ export type EntrySource = 'voice' | 'text';
 
 export type Entry =
 	| { kind: 'user'; id: string; text: string; source: EntrySource }
-	| { kind: 'assistant'; id: string; text: string; streaming: boolean; source: EntrySource }
+	| {
+			kind: 'assistant';
+			id: string;
+			text: string;
+			streaming: boolean;
+			source: EntrySource;
+			/**
+			 * How the self-check went, once there was something to check.
+			 *
+			 * `revised` means the draft was replaced in place rather than left on
+			 * screen with a correction underneath it — showing someone a wrong
+			 * answer and then a right one makes them read both and trust neither.
+			 */
+			check?: 'checking' | 'clean' | 'revised';
+			/** Why it was revised, in the checker's words. */
+			checkReasons?: string[];
+	  }
 	| {
 			kind: 'tool';
 			id: string;
@@ -69,6 +85,38 @@ class ConversationState {
 
 	appendAssistant(delta: string, source: EntrySource): void {
 		this.#openAssistant(source).text += delta;
+	}
+
+	/** The turn is being checked before it closes. */
+	markChecking(): void {
+		const entry = this.#lastAssistant();
+		if (entry && !entry.check) entry.check = 'checking';
+	}
+
+	markChecked(): void {
+		const entry = this.#lastAssistant();
+		if (entry?.check === 'checking') entry.check = 'clean';
+	}
+
+	/**
+	 * Throw away the draft and stream the corrected answer into the same bubble.
+	 *
+	 * Replacing rather than appending: the reader watched a wrong answer form,
+	 * and leaving it above the right one asks them to work out which is which.
+	 */
+	beginRevision(reasons: string[]): void {
+		const entry = this.#lastAssistant();
+		if (!entry) return;
+		entry.text = '';
+		entry.streaming = true;
+		entry.check = 'revised';
+		entry.checkReasons = reasons;
+	}
+
+	#lastAssistant(): Extract<Entry, { kind: 'assistant' }> | undefined {
+		return this.entries.findLast((entry) => entry.kind === 'assistant') as
+			| Extract<Entry, { kind: 'assistant' }>
+			| undefined;
 	}
 
 	/** Close any open assistant bubble. Safe to call more than once. */
@@ -136,6 +184,11 @@ class ConversationState {
 				break;
 			case 'tool-result':
 				this.finishTool(event.callId, event.isError, event.view, event.durationMs);
+				break;
+			case 'review':
+				if (event.status === 'checking') this.markChecking();
+				else if (event.status === 'clean') this.markChecked();
+				else this.beginRevision(event.reasons);
 				break;
 			case 'error':
 				this.settleAssistant();

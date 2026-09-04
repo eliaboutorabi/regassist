@@ -184,16 +184,42 @@ export class ToolCallError extends Error {
 
 // ------------------------------------------------------------------- registry
 
+/** A monotonic guard: a returned reason denies, and nothing can undo it. */
+export type ToolGuard = (call: {
+	name: string;
+	args: Record<string, JsonValue>;
+}) => string | undefined;
+
 /**
- * Events (all namespaced `tools/…`):
- *   - `tools/pre-execute` `@mode bail`      — return `{ deny }` to refuse a call.
- *   - `tools/execute`     `@mode waterfall` — wrap dispatch (deadlines, metrics).
- *   - `tools/result`      `@mode emit`      — observe the normalized outcome.
+ * Events (all namespaced `tools/…`), following the upstream pipeline:
+ *   - `tools/pre-execute`  `@mode bail`      — return `{ deny }` to refuse a call.
+ *   - registered guards                       — monotonic; no listener can undo one.
+ *   - `tools/execute`      `@mode waterfall` — wrap dispatch (deadlines, metrics).
+ *   - `tools/post-execute` `@mode serial`    — inspect or replace the outcome.
+ *   - `tools/result`       `@mode emit`      — observe the frozen final result.
  */
 export class ToolRegistry {
 	readonly #tools = new Map<string, RegisteredTool>();
+	readonly #guards: ToolGuard[] = [];
 
 	constructor(private readonly ctx: Context) {}
+
+	/**
+	 * Register a guard that runs after the `tools/pre-execute` waterfall.
+	 *
+	 * Monotonic on purpose: a guard's denial is final, where a `pre-execute`
+	 * listener's is merely first. Owner policy belongs here so a later plugin
+	 * cannot quietly turn a refusal back into permission.
+	 */
+	guard(guard: ToolGuard): Disposer {
+		return this.ctx.effect(() => {
+			this.#guards.push(guard);
+			return () => {
+				const index = this.#guards.indexOf(guard);
+				if (index !== -1) this.#guards.splice(index, 1);
+			};
+		});
+	}
 
 	/** Registration is effect-based: disposing the plugin unregisters the tool. */
 	register<S extends ParameterSchemaSpec, O extends ValueSchemaSpec>(
@@ -281,6 +307,11 @@ export class ToolRegistry {
 		const denial = this.ctx.bail<ToolDenial>('tools/pre-execute', { name, args });
 		if (denial) return fail(`Call refused: ${denial.deny}`);
 
+		for (const guard of this.#guards) {
+			const reason = guard({ name, args: request.arguments });
+			if (reason) return fail(`Call refused: ${reason}`);
+		}
+
 		const controller = new AbortController();
 		const signal = request.signal ?? controller.signal;
 		const exec: ToolExecution = Object.freeze({
@@ -305,6 +336,13 @@ export class ToolRegistry {
 				view: tool.presentResult?.(args, value),
 				durationMs: Date.now() - started
 			};
+
+			// A post-execute listener may append model-facing context — a warning
+			// about the result, a nudge about what to do next — without touching
+			// the canonical value programmatic callers read.
+			const extra = await this.ctx.serial<string>('tools/post-execute', result);
+			if (extra) result.content = [...result.content, { type: 'text', text: extra }];
+
 			this.ctx.emit('tools/result', result);
 			return result;
 		} catch (error) {

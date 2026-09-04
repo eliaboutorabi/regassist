@@ -1,5 +1,7 @@
 <script lang="ts">
 	/** The shared thread: typed turns, spoken turns, and the cards between them. */
+	import { CheckmarkBadge01Icon, Loading03Icon, RefreshIcon } from '@hugeicons/core-free-icons';
+	import Icon from './Icon.svelte';
 	import ToolCard from './ToolCard.svelte';
 	import { renderMarkdown } from '$lib/markdown';
 	import { conversation } from '$lib/state/conversation.svelte';
@@ -46,6 +48,33 @@
 						<span class="thinking" aria-label="Verity is thinking">
 							<i></i><i></i><i></i>
 						</span>
+					{/if}
+
+					{#if entry.check === 'checking'}
+						<p class="check" data-state="checking">
+							<Icon icon={Loading03Icon} size={13} class="spin" /> Checking this against what she looked up…
+						</p>
+					{:else if entry.check === 'clean'}
+						<p class="check" data-state="clean">
+							<Icon icon={CheckmarkBadge01Icon} size={13} /> Checked against her own lookups
+						</p>
+					{:else if entry.check === 'revised'}
+						<div class="check" data-state="revised">
+							<Icon icon={RefreshIcon} size={13} />
+							<span class="check-body">
+								<strong>Revised after checking.</strong>
+								{#if entry.checkReasons?.length}
+									<ul>
+										{#each entry.checkReasons.slice(0, 3) as reason, index (index)}
+											<li>{reason.length > 130 ? `${reason.slice(0, 130)}…` : reason}</li>
+										{/each}
+									</ul>
+									{#if entry.checkReasons.length > 3}
+										<span class="more">and {entry.checkReasons.length - 3} more</span>
+									{/if}
+								{/if}
+							</span>
+						</div>
 					{/if}
 				</div>
 			{:else if entry.kind === 'tool'}
@@ -190,6 +219,79 @@
 
 	@keyframes blink {
 		50% {
+			opacity: 0;
+		}
+	}
+
+	/* ------------------------------------------------------------ self-check */
+
+	.check {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin: 10px 0 0;
+		font-size: 11.5px;
+		line-height: 1.45;
+		font-weight: 560;
+		color: var(--muted);
+		border-radius: 999px;
+		padding: 3px 10px 3px 8px;
+		background: var(--paper);
+		border: 1px solid var(--line);
+		animation: fade 300ms var(--ease) both;
+	}
+
+	.check[data-state='clean'] {
+		color: color-mix(in srgb, var(--severity-low) 85%, var(--ink));
+	}
+
+	.check[data-state='revised'] {
+		display: flex;
+		color: color-mix(in srgb, var(--severity-medium) 88%, var(--ink));
+		background: color-mix(in srgb, var(--severity-medium) 7%, white);
+		border-color: color-mix(in srgb, var(--severity-medium) 20%, transparent);
+		max-width: 66ch;
+		align-items: flex-start;
+		gap: 8px;
+		padding: 8px 13px 9px 11px;
+		border-radius: 12px;
+		font-weight: 500;
+	}
+
+	.check[data-state='revised'] :global(svg) {
+		margin-top: 2px;
+		flex: none;
+	}
+
+	.check-body {
+		display: grid;
+		gap: 4px;
+		min-width: 0;
+	}
+
+	.check-body strong {
+		font-weight: 640;
+	}
+
+	.check-body ul {
+		list-style: disc;
+		margin: 0;
+		padding-left: 15px;
+		display: grid;
+		gap: 3px;
+	}
+
+	.check-body li {
+		line-height: 1.45;
+		color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+	}
+
+	.more {
+		opacity: 0.75;
+	}
+
+	@keyframes fade {
+		from {
 			opacity: 0;
 		}
 	}

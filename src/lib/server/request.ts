@@ -50,7 +50,7 @@ export function parseDocuments(raw: unknown): StoredDocument[] {
 	});
 }
 
-const PACK_IDS = ['ecfr', 'federal-register', 'review'] as const;
+const PACK_IDS = ['ecfr', 'federal-register', 'review', 'critic'] as const;
 type PackId = (typeof PACK_IDS)[number];
 
 export interface BrainPayload {
