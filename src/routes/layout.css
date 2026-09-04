@@ -1,1 +1,120 @@
 @import 'tailwindcss';
+
+/*
+ * Design tokens.
+ *
+ * The palette comes from the original Verity prototype so the app and the
+ * robot read as one object: a warm bone ground, near-white paper, deep navy
+ * ink, and a single accent that changes with the character on screen.
+ */
+@theme {
+	--color-ground: #dfdcd6;
+	--color-paper: #f6f6fa;
+	--color-ink: #12162f;
+	--color-muted: #6f7690;
+	--color-accent: #5b4cb0;
+	--font-sans:
+		Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root {
+	--ground: #dfdcd6;
+	--paper: #f6f6fa;
+	--surface: #ffffff;
+	--ink: #12162f;
+	--ink-soft: #3b4160;
+	--muted: #6f7690;
+	--accent: #5b4cb0;
+	--accent-soft: #ece9f8;
+	--line: rgba(21, 27, 51, 0.1);
+	--line-strong: rgba(21, 27, 51, 0.18);
+
+	--severity-high: #b3374b;
+	--severity-medium: #b3722a;
+	--severity-low: #4a6f8f;
+	--severity-info: #6f7690;
+
+	--radius-lg: 26px;
+	--radius-md: 18px;
+	--radius-sm: 12px;
+
+	--shadow-card: 0 1px 2px rgba(18, 22, 47, 0.05), 0 8px 24px -12px rgba(18, 22, 47, 0.18);
+	--shadow-float: 0 18px 48px -20px rgba(18, 22, 47, 0.4);
+
+	--ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+	color: var(--ink);
+	background: var(--ground);
+	font-family: var(--font-sans);
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	color-scheme: light;
+}
+
+/* Rosie swaps the accent; everything else in the system stays put. */
+:root[data-character='rose'] {
+	--accent: #c84f82;
+	--accent-soft: #fbeaf1;
+	--ink: #28172f;
+	--ink-soft: #4d3a52;
+	--muted: #8c7082;
+	--paper: #fbf6f8;
+}
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	margin: 0;
+	min-width: 320px;
+	background:
+		radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 0.92), transparent 60%),
+		var(--ground);
+}
+
+button,
+canvas {
+	-webkit-tap-highlight-color: transparent;
+}
+
+button {
+	font: inherit;
+	color: inherit;
+}
+
+:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 6px;
+}
+
+/* A scrollbar that does not fight the paper surfaces. */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: rgba(18, 22, 47, 0.18) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: rgba(18, 22, 47, 0.16);
+	border: 3px solid transparent;
+	border-radius: 999px;
+	background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+	}
+}
