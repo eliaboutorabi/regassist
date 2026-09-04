@@ -31,9 +31,22 @@ it is still talking, so the section it is describing is on screen before it
 finishes the sentence. Every citation the session touches collects into a rail
 under the transcript.
 
-**Give it a document.** Paste text or drop a file — plain text, Markdown, CSV,
-JSON or PDF. It scans for the passages that carry a federal regulatory exposure,
-names the concern, and then goes and reads the regulation that settles it.
+**Give it a document.** Attach it to the composer — plain text, Markdown, CSV,
+JSON or PDF — or just paste it in; anything long enough becomes an attachment
+rather than a message. Verity scans for passages carrying a federal regulatory
+exposure, names the concern, and reads the regulation that settles it.
+
+**And ask where.** With a Mistral key she marks the passages on the page
+itself, colour-coded by severity. Mistral Document AI reports where each block
+sits; the PDF's own text layer narrows that to the sentence, so a mark frames
+the line it belongs to rather than the paragraph around it. A scan with no text
+layer falls back to the block.
+
+**Teach her.** Settings carries *knowledge* — standing background about your
+practice, folded into the prompt as background rather than instruction — and
+*skills*, which are named instructions plus the tool packs they need. Switching
+a skill off withholds those tools rather than politely asking her not to use
+them.
 
 **Or just type.** Voice and text share one transcript, one tool registry and one
 set of cards. You can start by typing, switch to speaking, and keep one thread —
@@ -44,10 +57,11 @@ starting a competing one.
 
 Two free public APIs. Neither needs a key, an account, or a payment method.
 
-| Source | Answers | Used for |
-| --- | --- | --- |
-| [eCFR](https://www.ecfr.gov/developers) | What the rule **is** | Search and full section text across CFR titles 12, 17, 26, 29, 31 and 48 |
-| [Federal Register](https://www.federalregister.gov/developers/api/v1) | What is **changing** | Proposed and final rules, effective dates, comment deadlines |
+| Source | Answers | Used for | Key |
+| --- | --- | --- | --- |
+| [eCFR](https://www.ecfr.gov/developers) | What the rule **is** | Search and full section text across CFR titles 12, 17, 26, 29, 31 and 48 | none |
+| [Federal Register](https://www.federalregister.gov/developers/api/v1) | What is **changing** | Proposed and final rules, effective dates, comment deadlines | none |
+| [Mistral Document AI](https://docs.mistral.ai/) | **Where** a passage sits | Reading a PDF so a finding can be drawn on the page | yours, optional |
 
 ### Search is not the eCFR's own search
 
@@ -68,6 +82,14 @@ amounts paid to improve tangible …    →  26 CFR § 1.263(a)-3
 auditor independence                  →  17 CFR § 240.10A-2
 reports of foreign financial accounts →  31 CFR § 1010.350
 ```
+
+Headings are scored by word rarity, because "business" and "deduction" appear
+in hundreds of Title 26 headings and "beverage" in a handful. A small synonym
+map bridges the gap between the words an accountant types and the words a
+drafter used — no Title 26 heading contains the word "meal"; § 1.274-12 says
+"food or beverage expenses" — and a synonym only counts once a word the caller
+actually typed has also landed, or a question about meals finds the Food Stamp
+Act.
 
 ### What it deliberately cannot do
 
@@ -123,11 +145,14 @@ src/lib/plugins/
 ├── ecfr.ts             search_regulations, read_regulation
 ├── federal-register.ts find_rule_changes
 ├── review.ts           review_document, list_documents
+├── highlight.ts        highlight_document
 ├── review-rules.ts     27 rules — what a reviewer circles in red
 ├── documents.ts        Per-request document service
 ├── loop-guard.ts       Refuses an exact repeated call
 └── index.ts            Assembly — the only file that knows the full set
 ```
+
+Which of these mount is decided per turn by the skills that are switched on.
 
 The **review pack** is the domain core. It covers worker classification,
 reasonable compensation, capitalisation versus repair, the research credit,
@@ -157,7 +182,13 @@ Voice   browser ──► /api/realtime ──► OpenAI (mints an ephemeral sec
 
 Text    browser ──► /api/chat ────► OpenAI (SSE stream of AgentEvents)
                          └────────► eCFR / Federal Register
+
+Pages   browser ──► /api/ocr ─────► Mistral (blocks and boxes back)
+        browser ────────────────── pdf.js renders, text layer places the marks
 ```
+
+The file itself never leaves the browser except as the body of that one OCR
+request, and the marks are matched to positions in the tab that holds it.
 
 The caller's key reaches the server only as a request header, is spent on that
 one request, and is never written to a log, a database or an error message.
@@ -201,4 +232,5 @@ the rule; the judgement is yours. It has no memory between sessions, does not
 cover state or local tax, and cannot read a scanned PDF without a text layer.
 
 Voice needs Realtime access on the OpenAI account. Text mode does not, and the
-app detects which you have and says so.
+app detects which you have and says so. Marking up a page needs a Mistral key;
+without one everything else still works.
