@@ -26,6 +26,7 @@
 
 	let unlocked = $state(false);
 	let settingsOpen = $state(false);
+	let settingsAnchor = $state<HTMLDivElement | null>(null);
 
 	let voiceStatus = $state<VoiceStatus>('idle');
 	let voiceActive = $state(false);
@@ -114,6 +115,30 @@
 	// The character drives the accent colour for the whole document.
 	$effect(() => {
 		document.documentElement.dataset.character = session.character;
+	});
+
+	// A popover has to be dismissible by the two gestures people already try.
+	$effect(() => {
+		if (!settingsOpen) return;
+
+		const onKeydown = (event: KeyboardEvent) => {
+			if (event.key !== 'Escape') return;
+			settingsOpen = false;
+			// Send focus back to what opened it, or it lands on the document body.
+			settingsAnchor?.querySelector<HTMLButtonElement>('.icon')?.focus();
+		};
+		const onPointerDown = (event: PointerEvent) => {
+			if (settingsAnchor?.contains(event.target as Node)) return;
+			settingsOpen = false;
+		};
+
+		window.addEventListener('keydown', onKeydown);
+		// Capture, so a click on an element that stops propagation still closes it.
+		window.addEventListener('pointerdown', onPointerDown, true);
+		return () => {
+			window.removeEventListener('keydown', onKeydown);
+			window.removeEventListener('pointerdown', onPointerDown, true);
+		};
 	});
 
 	// Documents can be added mid-conversation; the live session sees them.
@@ -252,7 +277,7 @@
 			</div>
 		</div>
 
-		<div class="bar-actions">
+		<div class="bar-actions" bind:this={settingsAnchor}>
 			<div class="switcher" role="group" aria-label="Choose a character">
 				{#each CHARACTER_IDS as id (id)}
 					<button
@@ -286,9 +311,8 @@
 					</svg>
 				</button>
 			{/if}
-		</div>
 
-		{#if settingsOpen}
+			{#if settingsOpen}
 			<div class="settings">
 				<label>
 					<span>Text model</span>
@@ -321,7 +345,8 @@
 					>
 				</div>
 			</div>
-		{/if}
+			{/if}
+		</div>
 	</header>
 
 	<main>
@@ -477,6 +502,7 @@
 	}
 
 	.bar-actions {
+		position: relative;
 		display: flex;
 		align-items: center;
 		gap: 8px;
@@ -537,8 +563,8 @@
 
 	.settings {
 		position: absolute;
-		top: calc(100% - 4px);
-		right: 2px;
+		top: calc(100% + 10px);
+		right: 0;
 		z-index: 20;
 		width: min(300px, calc(100vw - 32px));
 		display: grid;

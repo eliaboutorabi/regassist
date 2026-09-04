@@ -167,9 +167,15 @@ database scaffolding came out of the project.
 ## Testing
 
 ```bash
-npm run check        # types and a11y — 0 errors, 0 warnings
-npm test -- --run    # 40 offline tests
+npm run check   # types and a11y — 0 errors, 0 warnings
+npm test        # 44 unit tests, then 14 end-to-end
 ```
+
+The end-to-end suite drives the real UI in Chromium with the API routes
+stubbed, so it needs no key and does not call two free government APIs on every
+run. It covers the key gate (including a rejected key), a full turn rendering
+its regulation card and citation rail, loading and removing a document, the
+settings popover, the character switch, and a 375×812 phone layout.
 
 The live suite hits the real APIs and, for the agent tests, a real key:
 
