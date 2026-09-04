@@ -15,6 +15,7 @@
 		frameVerityCamera
 	} from '$lib/robot/index.js';
 	import { CHARACTERS, type CharacterId } from '$lib/voices';
+	import { printerEnvelope } from './printer-envelope.js';
 
 	interface Props {
 		character: CharacterId;
@@ -45,6 +46,22 @@
 	/** Flips once the scene exists, which is what gates the character effect. */
 	let ready = $state(false);
 
+	/**
+	 * Props mirrored into plain locals.
+	 *
+	 * The render loop is a long-lived requestAnimationFrame closure rather than
+	 * a reactive context, so it reads these rather than the props directly —
+	 * one obvious place where the current frame's inputs come from, instead of
+	 * relying on how prop access behaves inside a captured callback.
+	 */
+	const inputs = { level: 0, audible: false, printing: false };
+
+	$effect(() => {
+		inputs.level = audioLevel;
+		inputs.audible = audible;
+		inputs.printing = printing;
+	});
+
 	/** Buffered while the scene boots, so no transcript text is dropped. */
 	const queued: string[] = [];
 
@@ -60,6 +77,18 @@
 	export function clearTranscript(): void {
 		queued.length = 0;
 		robot?.clearTranscript();
+	}
+
+	/** A snapshot of the character's animation state, for tests and debugging. */
+	export function debugState() {
+		if (!robot) return null;
+		return {
+			...robot.getState(),
+			inputs: { ...inputs },
+			outputAudioActive: (robot as unknown as { outputAudioActive: boolean }).outputAudioActive,
+			paperFeedDistance: robot.paperFeedDistance,
+			paperProgress: robot.paperProgress
+		};
 	}
 
 	$effect(() => {
@@ -111,17 +140,12 @@
 			previous = now;
 
 			if (robot) {
-				if (printing) {
-					// Two detuned sines read as a mechanism running rather than a
-					// pulse; the floor keeps the paper moving between beats.
-					const seconds = now / 1000;
-					const wobble =
-						0.28 + 0.16 * Math.sin(seconds * 11.4) + 0.1 * Math.sin(seconds * 4.7 + 1.3);
-					robot.setAudioLevel(Math.max(0.12, wobble));
+				if (inputs.printing) {
+					robot.setAudioLevel(printerEnvelope(now / 1000));
 					robot.setOutputAudioActive(true);
 				} else {
-					robot.setAudioLevel(audioLevel);
-					robot.setOutputAudioActive(audible);
+					robot.setAudioLevel(inputs.level);
+					robot.setOutputAudioActive(inputs.audible);
 				}
 				robot.update(now / 1000, delta);
 			}

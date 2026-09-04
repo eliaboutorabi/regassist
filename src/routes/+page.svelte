@@ -98,6 +98,16 @@
 		// A remembered key still gets checked, so a revoked one fails at the
 		// gate rather than three seconds into the first answer.
 		if (session.hasKey) void session.verify().then((ok) => (unlocked = ok));
+
+		if (import.meta.env.DEV) {
+			// A console handle for inspecting the character while developing.
+			// onMount only, because this module is also rendered on the server.
+			(window as unknown as Record<string, unknown>).__verity = {
+				robot: () => stage?.debugState(),
+				voice: () => ({ status: voiceStatus, active: voiceActive, level: audioLevel, audible })
+			};
+		}
+
 		return () => voice.stop();
 	});
 
