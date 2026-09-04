@@ -12,7 +12,7 @@
 import { error, json, type RequestHandler } from '@sveltejs/kit';
 import type { ToolRegistry } from '$lib/harness';
 import { createHarness } from '$lib/plugins';
-import { describeError, parseBrain, parseDocuments } from '$lib/server/request';
+import { describeError, parseBrain, parseDocuments, parsePriorCalls } from '$lib/server/request';
 
 export const config = { runtime: 'nodejs22.x' };
 
@@ -31,14 +31,22 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const documents = parseDocuments(body.documents);
 	const brain = parseBrain(body.brain);
-	const ctx = await createHarness({ documents, packs: brain.packs });
+	const ctx = await createHarness({
+		documents,
+		packs: brain.packs,
+		priorCalls: parsePriorCalls(body.priorCalls)
+	});
 
 	try {
 		const result = await ctx.require<ToolRegistry>('tools').execute({
 			callId,
 			name,
 			arguments: (args ?? {}) as Record<string, never>,
-			signal: request.signal
+			signal: request.signal,
+			// This route only ever serves the voice agent, which pays for every
+			// token twice — once in latency before she speaks, once in the risk
+			// she reads a breadcrumb out loud.
+			modality: 'voice'
 		});
 
 		return json({

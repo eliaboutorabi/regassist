@@ -47,13 +47,29 @@ function citationsSeen(record: readonly ToolResult[]): Set<string> {
 	return seen;
 }
 
-/** Which sections the turn actually opened, as opposed to merely listed. */
+/**
+ * Which sections the turn actually opened, as opposed to merely listed.
+ *
+ * Reads the canonical value where there is one, and falls back to the call's
+ * own arguments where there is not — the voice client assembles its record
+ * from what crossed the wire, which carries the arguments but not the twelve
+ * thousand characters of section text.
+ */
 function citationsRead(record: readonly ToolResult[]): Set<string> {
 	const read = new Set<string>();
 	for (const result of record) {
 		if (result.name !== 'read_regulation' || result.isError) continue;
+
 		const value = result.value as { section?: { citation?: string } } | null;
-		if (value?.section?.citation) read.add(sectionOf(value.section.citation));
+		if (value?.section?.citation) {
+			read.add(sectionOf(value.section.citation));
+			continue;
+		}
+
+		const { title, section } = result.arguments as { title?: unknown; section?: unknown };
+		if (typeof title === 'number' && typeof section === 'string') {
+			read.add(sectionOf(`${title} CFR § ${section}`));
+		}
 	}
 	return read;
 }
@@ -183,6 +199,39 @@ export function auditTurn(draft: string, record: readonly ToolResult[]): Objecti
 	}
 
 	return objections;
+}
+
+/**
+ * The same audit, phrased for someone talking.
+ *
+ * A listener is not looking at a badge, so a correction has to be said. The
+ * instruction is written to produce a sentence a person would actually say —
+ * "actually, let me correct that" — rather than a paragraph of contrition, and
+ * to keep the machinery out of it: nobody wants to hear that a checker fired.
+ *
+ * Returns null when there is nothing to correct, which is the normal case.
+ */
+export function spokenCorrection(
+	spoken: string,
+	record: readonly ToolResult[]
+): { instruction: string; reasons: string[] } | null {
+	// Nothing was looked up, so there is nothing to check the words against.
+	if (!record.length) return null;
+
+	const objections = auditTurn(spoken, record);
+	if (!objections.length) return null;
+
+	return {
+		reasons: objections.map((objection) => objection.reason),
+		instruction: [
+			'[System check — the caller did not say this and cannot see it.]',
+			'',
+			'What you just said does not match what you actually looked up:',
+			...objections.map((objection) => `- ${objection.instruction}`),
+			'',
+			'Correct yourself out loud now, in one or two sentences. Start naturally — "actually, let me correct that" — say what the right position is, and stop. Do not mention being checked, do not apologise at length, and do not repeat the whole answer. If putting it right needs a lookup you have not done, do it first.'
+		].join('\n')
+	};
 }
 
 export const verifyPlugin = {

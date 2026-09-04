@@ -86,6 +86,12 @@
 		// Asked for at connect time, including after a reconnect, so a dropped
 		// session comes back knowing everything said before it dropped.
 		transcript: () => conversation.toMessages(),
+		onReview: (status, reasons) => {
+			// A listener is not looking at the screen, so the correction is spoken.
+			// The badge is for whoever is.
+			if (status === 'clean') conversation.markChecked();
+			else conversation.markVoiceRevision(reasons);
+		},
 		onAudioLevel: (level, isAudible) => {
 			audioLevel = level;
 			audible = isAudible;

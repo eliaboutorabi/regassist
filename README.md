@@ -103,6 +103,50 @@ lives rather than as a search to retry.
 State and local tax, foreign law, and standards outside the CFR (FASB, PCAOB)
 are out of scope, and it says so rather than improvising.
 
+## Voice is a different medium, not a smaller one
+
+Three things follow from that, and they are where most of the voice work went.
+
+**A listener gets a different rendering of the same result.** A tool declares
+`speak()` alongside `render()`, and the registry picks by modality. It matters
+more than it sounds: `read_regulation` hands a reader twelve thousand
+characters of section text quite happily, and every one of them has to be
+swallowed by a realtime model before it can start talking. Nothing is
+paraphrased — runs of reserved paragraphs collapse to a pointer at where the
+text actually lives, and the cut is declared so she offers the rest rather than
+pretending she read it. Measured against the live eCFR:
+
+```
+read_regulation      12,198 chars  →  2,047   83% less
+find_rule_changes     2,747        →    761   72% less
+search_regulations    1,089        →    344   68% less
+```
+
+A listener also never receives a URL or a forty-word breadcrumb, because those
+are things she might read out.
+
+**She corrects herself out loud.** The text agent gets its checkpoint from the
+harness, which owns its loop. OpenAI owns the realtime loop, so the boundary
+has to be found rather than declared — `response.done` with nothing
+outstanding is the same moment — and steering is a conversation item instead of
+a function call. The same audit runs on the same evidence, and if it objects
+she says so in her next breath. A badge on a screen is no use to someone
+listening. From a live session where the lookups had failed:
+
+> "Actually, let me correct that: I couldn't verify the substantiation
+> requirements because the regulation lookups failed, so I don't have the
+> section text to rely on."
+
+**The loop guard needed a memory.** A voice function call is its own stateless
+request, so a fresh context started every call knowing nothing and the guard
+never once fired — in the mode where it matters most, because nobody is reading
+the transcript to notice the same search going round again. The browser holds
+the session, so the browser supplies the history.
+
+Typing while she is speaking now queues rather than failing: asking for a
+second response while one is running is refused outright, which used to leave
+the typed message sitting there unanswered.
+
 ## She checks her own answer
 
 Before an answer reaches you, the turn stops at a checkpoint. Anything that
@@ -201,6 +245,10 @@ The events a plugin can hook, following the upstream contract:
 | `tools/result` | emit | Observe the frozen outcome |
 | `agent/request-error` | bail | Return a retry action, or let the error stand |
 | `agent/turn-stopping` | parallel | Object, and the turn reopens for one more step |
+
+A tool's `output.speak()` is the same idea one level down: the registry picks
+the rendering by modality, so one tool serves a reader and a listener without
+either being an afterthought.
 
 ### The plugins
 

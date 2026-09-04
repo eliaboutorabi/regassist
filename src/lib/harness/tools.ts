@@ -120,7 +120,19 @@ export interface ToolDefinition<
 	readonly parameters: S;
 	readonly output: {
 		readonly schema: O;
+		/** What a reader gets. Prose, citations, whatever the answer needs. */
 		render(args: InferArgs<S>, value: InferValue<O>): ToolContentBlock[];
+		/**
+		 * What a listener gets, when the tool has a shorter way to say it.
+		 *
+		 * A realtime voice session pays for every token twice — in latency
+		 * before she speaks, and in the risk that she reads a breadcrumb or a
+		 * URL out loud. `read_regulation` hands a reader twelve thousand
+		 * characters of section text quite happily and should hand a listener a
+		 * few hundred. Falls back to `render` when a tool has nothing shorter
+		 * to say, which is most of them.
+		 */
+		speak?(args: InferArgs<S>, value: InferValue<O>): ToolContentBlock[];
 	};
 	/** Pure projection of the pending call. Must not do I/O. */
 	presentCall?(args: InferArgs<S>): ToolCallView | undefined;
@@ -160,11 +172,15 @@ export interface ToolResult {
 	durationMs: number;
 }
 
+/** Who the result is for. Voice gets the shorter rendering where one exists. */
+export type Modality = 'text' | 'voice';
+
 export interface ToolCallRequest {
 	callId: string;
 	name: string;
 	arguments: Record<string, JsonValue>;
 	signal?: AbortSignal;
+	modality?: Modality;
 }
 
 /** A `tools/pre-execute` listener returns this to stop a call. */
@@ -326,12 +342,13 @@ export class ToolRegistry {
 				(await tool.execute(args, exec)) as JsonValue
 			);
 			const value = validateValue(raw, tool.output.schema) as never;
+			const speak = request.modality === 'voice' ? tool.output.speak : undefined;
 			const result: ToolResult = {
 				callId,
 				name,
 				arguments: request.arguments,
 				value,
-				content: tool.output.render(args, value),
+				content: (speak ?? tool.output.render)(args, value),
 				isError: false,
 				view: tool.presentResult?.(args, value),
 				durationMs: Date.now() - started

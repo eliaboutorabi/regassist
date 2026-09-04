@@ -106,7 +106,24 @@ export const federalRegisterPlugin = {
 								].join('\n')
 							}
 						];
-					}
+					},
+					speak: (args, value) =>
+						value.changes.length
+							? [
+									{
+										type: 'text',
+										text: [
+											`${value.totalCount} documents match "${args.query}". Most recent:`,
+											...value.changes.slice(0, 4).map((change) => {
+												const when = change.effectiveOn
+													? `effective ${change.effectiveOn}`
+													: `published ${change.publishedOn}, no effective date`;
+												return `• ${change.type}: ${change.title} — ${change.agency}, ${when}`;
+											})
+										].join('\n')
+									}
+								]
+							: [{ type: 'text', text: `No rule-making matches "${args.query}".` }]
 				},
 				presentCall: (args) => ({
 					card: 'search',

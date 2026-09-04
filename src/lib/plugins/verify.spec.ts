@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ToolResult } from '$lib/harness';
-import { auditTurn, citationsIn } from './verify.js';
+import { auditTurn, citationsIn, spokenCorrection } from './verify.js';
 
 const result = (over: Partial<ToolResult> & { name: string }): ToolResult => ({
 	callId: 'c1',
@@ -162,5 +162,71 @@ describe('an answer that never arrives', () => {
 
 	it('says nothing when there was no work to report either', () => {
 		expect(auditTurn('', [])).toEqual([]);
+	});
+})
+
+describe('a record assembled from the wire', () => {
+	// What the voice client can see: names, arguments, and the rendered text.
+	const wireRead = (title: number, section: string) =>
+		result({
+			name: 'read_regulation',
+			arguments: { title, section },
+			value: null,
+			content: [{ type: 'text', text: `${title} CFR § ${section} — the operative text` }]
+		});
+
+	it('counts a section as read from the arguments alone', () => {
+		const record = [wireRead(26, '1.274-5')];
+		const draft = '26 CFR § 1.274-5 requires adequate records.';
+		expect(auditTurn(draft, record)).toEqual([]);
+	});
+
+	it('still objects to a section that was only searched', () => {
+		const record = [searched('26 CFR § 1.162-17 Reporting.')];
+		const draft = '26 CFR § 1.162-17 requires substantiation.';
+		expect(auditTurn(draft, record).some((o) => /without reading/.test(o.reason))).toBe(true);
+	});
+})
+
+describe('spokenCorrection', () => {
+	it('says nothing when the turn looked nothing up', () => {
+		expect(spokenCorrection('Anything at all.', [])).toBeNull();
+	});
+
+	it('says nothing about an answer its lookups support', () => {
+		const record = [searched('26 CFR § 1.274-5 Substantiation requirements.'), read('26 CFR § 1.274-5')];
+		expect(
+			spokenCorrection('Under twenty-six CFR one point two seven four dash five, keep records.', record)
+		).toBeNull();
+	});
+
+	it('asks her to correct herself when she went past her lookups', () => {
+		const record = [searched('26 CFR § 1.170A-17 Qualified appraisal and qualified appraiser.')];
+		const correction = spokenCorrection(
+			'26 CFR § 1.170A-17 requires a qualified appraisal from a qualified appraiser.',
+			record
+		)!;
+		expect(correction).not.toBeNull();
+		expect(correction.reasons[0]).toMatch(/without reading it/);
+	});
+
+	it('tells her to speak the correction, not describe the check', () => {
+		const record = [searched('26 CFR § 1.170A-17 Qualified appraisal.')];
+		const correction = spokenCorrection('26 CFR § 1.170A-17 requires an appraisal.', record)!;
+		expect(correction.instruction).toMatch(/Correct yourself out loud/);
+		expect(correction.instruction).toMatch(/Do not mention being checked/);
+		expect(correction.instruction).toMatch(/one or two sentences/);
+	});
+
+	it('carries every objection into one correction', () => {
+		const record = [
+			searched('26 CFR § 1.170A-17 Qualified appraisal.'),
+			result({ name: 'read_regulation', isError: true })
+		];
+		const correction = spokenCorrection(
+			'26 CFR § 1.170A-17 requires an appraisal, and 26 CFR § 1.999-9 sets the threshold.',
+			record
+		)!;
+		expect(correction.reasons.length).toBeGreaterThan(1);
 	});
 })

@@ -95,7 +95,22 @@ class ConversationState {
 
 	markChecked(): void {
 		const entry = this.#lastAssistant();
-		if (entry?.check === 'checking') entry.check = 'clean';
+		if (entry && entry.check !== 'revised') entry.check = 'clean';
+	}
+
+	/**
+	 * A spoken turn is being corrected out loud.
+	 *
+	 * Unlike a typed one, the draft is not thrown away — the listener already
+	 * heard it, and the correction arrives as her next sentence. So the bubble
+	 * stays and is marked, and the next transcript lands under it.
+	 */
+	markVoiceRevision(reasons: string[]): void {
+		const entry = this.#lastAssistant();
+		if (!entry) return;
+		entry.check = 'revised';
+		entry.checkReasons = reasons;
+		entry.streaming = false;
 	}
 
 	/**

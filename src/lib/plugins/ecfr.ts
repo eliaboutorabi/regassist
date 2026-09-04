@@ -2,6 +2,7 @@
 
 import { defineTool, type Context, type ToolRegistry } from '$lib/harness';
 import { RELEVANT_TITLES, readSection, searchRegulations } from '$lib/sources/ecfr.js';
+import { condenseSection } from '$lib/sources/condense.js';
 
 const CITATION_SCHEMA = {
 	type: 'object' as const,
@@ -96,7 +97,30 @@ export const ecfrPlugin = {
 								].join('\n')
 							}
 						];
-					}
+					},
+					// Spoken: the citation and what it is called. A breadcrumb read
+					// aloud is forty words of Department of the Treasury, and a URL
+					// read aloud is worse.
+					speak: (args, value) =>
+						value.hits.length
+							? [
+									{
+										type: 'text',
+										text: [
+											`${value.totalCount} sections match "${args.query}". The closest:`,
+											...value.hits
+												.slice(0, 4)
+												.map((hit, index) => `${index + 1}. ${hit.citation} — ${hit.heading}`),
+											'Read one before saying what it requires.'
+										].join('\n')
+									}
+								]
+							: [
+									{
+										type: 'text',
+										text: `Nothing matched "${args.query}". Try three or four words of the regulation's own language.`
+									}
+								]
 				},
 				presentCall: (args) => ({
 					card: 'search',
@@ -168,7 +192,33 @@ export const ecfrPlugin = {
 								.join('\n')
 								.trim()
 						}
-					]
+					],
+					/**
+					 * Spoken: a section runs to twelve thousand characters, a third
+					 * of it cross-references. All of that has to be swallowed before
+					 * she can begin talking, and none of it can be said out loud.
+					 * Nothing is paraphrased — reserved runs collapse to a pointer
+					 * and the cut is declared, so she offers the rest rather than
+					 * pretending she read it.
+					 */
+					speak: (_args, value) => {
+						const condensed = condenseSection(value.body);
+						return [
+							{
+								type: 'text',
+								text: [
+									`${value.section.citation} — ${value.section.heading}`,
+									'',
+									condensed.text,
+									condensed.truncated || value.truncated
+										? '\n[Shortened. Say so if the caller needs a part you cannot see, and read it again.]'
+										: ''
+								]
+									.join('\n')
+									.trim()
+							}
+						];
+					}
 				},
 				presentCall: (args) => ({
 					card: 'regulation',

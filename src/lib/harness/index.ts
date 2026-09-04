@@ -24,6 +24,7 @@ export {
 	type RuleChange,
 	type ToolCallView,
 	type ToolDefinition,
+	type Modality,
 	type ToolExecution,
 	type ToolGuard,
 	type ToolResult,

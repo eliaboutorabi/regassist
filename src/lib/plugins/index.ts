@@ -20,7 +20,7 @@ import { documentsPlugin, type DocumentStore, type StoredDocument } from './docu
 import { ecfrPlugin } from './ecfr.js';
 import { federalRegisterPlugin } from './federal-register.js';
 import { highlightPlugin } from './highlight.js';
-import { loopGuardPlugin } from './loop-guard.js';
+import { loopGuard, type PriorCall } from './loop-guard.js';
 import { reviewPlugin } from './review.js';
 import { verifyPlugin } from './verify.js';
 import { criticPlugin } from './critic.js';
@@ -54,6 +54,13 @@ export interface HarnessOptions {
 	packs?: readonly PackId[];
 	/** Lets the critic make its own request. Omitted disables it. */
 	credentials?: Credentials;
+	/**
+	 * Calls this conversation has already made.
+	 *
+	 * Only the voice path supplies these: its calls arrive as separate stateless
+	 * requests, so without them the loop guard starts every call with no memory.
+	 */
+	priorCalls?: readonly PriorCall[];
 }
 
 /**
@@ -82,7 +89,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Conte
 		await ctx.plugin(highlightPlugin);
 	}
 
-	await ctx.plugin(loopGuardPlugin);
+	await ctx.plugin(loopGuard(options.priorCalls));
 
 	// The mechanical check is free and never wrong, so it is not optional.
 	// The critic costs a model call, so it is a skill the user can switch off.
@@ -107,3 +114,4 @@ export async function toolSchemas(packs?: readonly PackId[]) {
 
 export { MAX_DOCUMENT_CHARS, type DocumentStore, type StoredDocument } from './documents.js';
 export { REVIEW_RULES, scanDocument, type ReviewRule, type Severity } from './review-rules.js';
+export type { PriorCall } from './loop-guard.js';

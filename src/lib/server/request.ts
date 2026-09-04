@@ -90,6 +90,29 @@ export function parseBrain(raw: unknown): BrainPayload {
 	};
 }
 
+/** The most history worth carrying; beyond this a session has gone wrong anyway. */
+const MAX_PRIOR_CALLS = 40;
+
+/**
+ * Calls this conversation has already made, sent by a stateless voice client.
+ *
+ * Untrusted like everything else on the request: a malformed entry is dropped
+ * rather than being allowed to break the turn.
+ */
+export function parsePriorCalls(
+	raw: unknown
+): { name: string; arguments: Record<string, never> }[] {
+	if (!Array.isArray(raw)) return [];
+
+	return raw.slice(-MAX_PRIOR_CALLS).flatMap((entry) => {
+		if (typeof entry !== 'object' || entry === null) return [];
+		const { name, arguments: args } = entry as Record<string, unknown>;
+		if (typeof name !== 'string' || !name) return [];
+		if (typeof args !== 'object' || args === null || Array.isArray(args)) return [];
+		return [{ name, arguments: args as Record<string, never> }];
+	});
+}
+
 /** Turn any thrown value into a message safe to show a user. */
 export function describeError(cause: unknown): string {
 	if (cause instanceof Error) return cause.message;

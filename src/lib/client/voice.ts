@@ -12,7 +12,8 @@
  * screen a beat before Verity starts describing it.
  */
 
-import type { ToolCallView, ToolResultView } from '$lib/harness';
+import type { ToolCallView, ToolResult, ToolResultView } from '$lib/harness';
+import { spokenCorrection } from '$lib/plugins/verify';
 import type { StoredDocument } from '$lib/plugins';
 import type { CharacterId } from '$lib/voices';
 
@@ -37,6 +38,12 @@ export interface VoiceHandlers {
 		durationMs?: number
 	): void;
 	onError(message: string): void;
+	/**
+	 * A turn was checked against what it actually looked up.
+	 *
+	 * `revising` means she is about to correct herself out loud.
+	 */
+	onReview?(status: 'clean' | 'revising', reasons: string[]): void;
 	/** Called every animation frame with the output envelope, 0–1. */
 	onAudioLevel(level: number, audible: boolean): void;
 	/**
@@ -97,6 +104,29 @@ export class VoiceSession {
 	#lastStart: VoiceStartOptions | null = null;
 	#reconnects = 0;
 	#reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/**
+	 * The turn so far, for the self-check.
+	 *
+	 * The text agent gets its checkpoint from the harness, which owns its loop.
+	 * OpenAI owns this one, so the boundary has to be found rather than
+	 * declared: `response.done` with nothing outstanding is the same moment,
+	 * and steering is a conversation item instead of a function call.
+	 */
+	#spoken = '';
+	#turnRecord: ToolResult[] = [];
+	#correctedThisTurn = false;
+	/** A reply owed to something typed while she was already speaking. */
+	#owedResponse = false;
+	/**
+	 * Every call this session has made.
+	 *
+	 * Sent with each tool request so the loop guard has a memory. Each call is
+	 * its own stateless request to our server, so without this the guard starts
+	 * empty every time and never fires — in the one mode where nobody is reading
+	 * the transcript to notice the same search going round again.
+	 */
+	#sessionCalls: { name: string; arguments: Record<string, unknown> }[] = [];
 	#status: VoiceStatus = 'idle';
 	#muted = false;
 
@@ -258,25 +288,45 @@ export class VoiceSession {
 		this.#outstanding = 0;
 		this.#calledThisResponse = 0;
 		this.#responseClosed = true;
+		this.#owedResponse = false;
+		this.#resetTurn();
 		this.handlers.onAudioLevel(0, false);
 	}
 
 	stop(): void {
-		// A deliberate stop is not a drop: forget how to come back.
+		// A deliberate stop is not a drop: forget how to come back, and forget
+		// what was asked. A reconnect keeps both, because it is the same
+		// conversation carrying on.
 		this.#lastStart = null;
 		this.#reconnects = 0;
+		this.#sessionCalls = [];
 		this.#teardown();
 		if (this.#status !== 'error') this.#setStatus('idle');
 	}
 
-	/** Inject a typed message into a live voice session. */
+	/**
+	 * Inject a typed message into a live voice session.
+	 *
+	 * The item goes in immediately so it is in context whatever happens next,
+	 * but the reply is only requested when she is not already mid-response —
+	 * asking for a second one is refused outright ("Conversation already has an
+	 * active response in progress"), which used to leave the typed message
+	 * sitting there unanswered with an error card beside it. Typing while she
+	 * talks now queues: she finishes her sentence, then answers.
+	 */
 	say(text: string): boolean {
 		if (this.#channel?.readyState !== 'open') return false;
+
 		this.#send({
 			type: 'conversation.item.create',
 			item: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] }
 		});
-		this.#send({ type: 'response.create' });
+
+		if (this.#responseClosed && this.#outstanding === 0) {
+			this.#send({ type: 'response.create' });
+		} else {
+			this.#owedResponse = true;
+		}
 		return true;
 	}
 
@@ -431,12 +481,16 @@ export class VoiceSession {
 				this.#outstanding = 0;
 				this.#calledThisResponse = 0;
 				this.#responseClosed = false;
+				// A follow-up response after tool results is the same turn
+				// continuing, so the transcript and record accumulate across it.
+				if (!this.#calledThisResponse && !this.#turnRecord.length) this.#spoken = '';
 				this.#setStatus('speaking');
 				break;
 
 			case 'response.output_audio_transcript.delta': {
 				const delta = event.delta as string;
 				if (delta) {
+					this.#spoken += delta;
 					this.#setStatus('speaking');
 					this.handlers.onAssistantDelta(delta);
 				}
@@ -512,6 +566,11 @@ export class VoiceSession {
 
 		this.handlers.onToolCall(call.callId, call.name, undefined);
 
+		// Snapshot before recording this one: sending the current call as its own
+		// history makes the guard deny every call, including the first.
+		const priorCalls = this.#sessionCalls.slice(-40);
+		this.#sessionCalls.push({ name: call.name, arguments: parsed });
+
 		let output = 'The tool call could not be completed.';
 		let isError = true;
 		let view: ToolResultView | undefined;
@@ -526,7 +585,8 @@ export class VoiceSession {
 					name: call.name,
 					arguments: parsed,
 					documents: this.#documents,
-					brain: this.#brain
+					brain: this.#brain,
+					priorCalls
 				})
 			});
 			const payload = (await response.json()) as {
@@ -551,6 +611,18 @@ export class VoiceSession {
 
 		this.handlers.onToolResult(call.callId, isError, view, durationMs);
 
+		// The evidence the self-check reasons over, assembled from what crossed
+		// the wire: names, arguments, and the text the model was handed.
+		this.#turnRecord.push({
+			callId: call.callId,
+			name: call.name,
+			arguments: parsed as Record<string, never>,
+			value: null,
+			content: [{ type: 'text', text: output }],
+			isError,
+			durationMs: durationMs ?? 0
+		});
+
 		this.#send({
 			type: 'conversation.item.create',
 			item: { type: 'function_call_output', call_id: call.callId, output }
@@ -558,6 +630,49 @@ export class VoiceSession {
 
 		this.#outstanding = Math.max(0, this.#outstanding - 1);
 		this.#continueIfSettled();
+	}
+
+	/**
+	 * The turn has really ended: check what she said against what she looked up.
+	 *
+	 * The same audit the text agent runs at its stop boundary, on the same
+	 * evidence. If it objects she corrects herself in her next breath, which is
+	 * how a person handles it — the alternative is a badge on a screen nobody
+	 * listening is looking at.
+	 */
+	#auditSpokenTurn(): void {
+		// One correction per turn: a second is an argument, out loud.
+		if (this.#correctedThisTurn) {
+			this.#resetTurn();
+			return;
+		}
+
+		const correction = spokenCorrection(this.#spoken, this.#turnRecord);
+		if (!correction) {
+			if (this.#turnRecord.length) this.handlers.onReview?.('clean', []);
+			this.#resetTurn();
+			return;
+		}
+
+		this.#correctedThisTurn = true;
+		this.handlers.onReview?.('revising', correction.reasons);
+
+		this.#send({
+			type: 'conversation.item.create',
+			item: {
+				type: 'message',
+				role: 'user',
+				content: [{ type: 'input_text', text: correction.instruction }]
+			}
+		});
+		this.#send({ type: 'response.create' });
+		this.#spoken = '';
+	}
+
+	#resetTurn(): void {
+		this.#spoken = '';
+		this.#turnRecord = [];
+		this.#correctedThisTurn = false;
 	}
 
 	/**
@@ -577,6 +692,17 @@ export class VoiceSession {
 			this.#send({ type: 'response.create' });
 			return;
 		}
+
+		// Something typed while she was speaking has been waiting for its turn.
+		if (this.#owedResponse) {
+			this.#owedResponse = false;
+			this.#resetTurn();
+			this.#send({ type: 'response.create' });
+			return;
+		}
+
+		// Nothing outstanding and nothing owed: this is the turn's boundary.
+		this.#auditSpokenTurn();
 		if (this.#status !== 'error') this.#setStatus('listening');
 	}
 }

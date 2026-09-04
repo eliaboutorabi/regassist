@@ -146,7 +146,30 @@ export const reviewPlugin = {
 								].join('\n')
 							}
 						];
-					}
+					},
+					speak: (_args, value) =>
+						value.findings.length
+							? [
+									{
+										type: 'text',
+										text: [
+											`${value.documentName}: ${value.summary}`,
+											...value.findings
+												.slice(0, 6)
+												.map(
+													(finding) =>
+														`• ${finding.severity}: ${finding.topic} — "${finding.quote.slice(0, 120)}"`
+												),
+											'Verify the serious ones against the regulation before characterising them.'
+										].join('\n')
+									}
+								]
+							: [
+									{
+										type: 'text',
+										text: `${value.documentName}: nothing matched the review pack. Say plainly that this is not a clean bill of health.`
+									}
+								]
 				},
 				presentCall: (args) => ({
 					card: 'review',

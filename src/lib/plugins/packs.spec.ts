@@ -36,3 +36,56 @@ describe('tool packs', () => {
 		expect(await names([])).toContain('search_regulations');
 	});
 });
+
+describe('the loop guard across stateless calls', () => {
+	const call = {
+		name: 'review_document',
+		arguments: { document: 'memo' }
+	} as const;
+
+	const documents = [
+		{ id: 'memo', name: 'memo', kind: 'paste' as const, text: 'Client dinners are fully deductible.' }
+	];
+
+	it('refuses a repeat the caller already made in an earlier request', async () => {
+		// Each voice tool call is its own request with its own context, so the
+		// guard only knows what the client tells it.
+		const ctx = await createHarness({ documents, priorCalls: [call] });
+		const result = await ctx
+			.require<ToolRegistry>('tools')
+			.execute({ callId: '1', ...call });
+
+		expect(result.isError).toBe(true);
+		expect(result.content[0].text).toMatch(/already ran review_document/);
+		ctx.dispose();
+	});
+
+	it('allows a call the conversation has not made', async () => {
+		const ctx = await createHarness({
+			documents,
+			priorCalls: [{ name: 'review_document', arguments: { document: 'something else' } }]
+		});
+		const result = await ctx.require<ToolRegistry>('tools').execute({ callId: '1', ...call });
+		expect(result.isError).toBe(false);
+		ctx.dispose();
+	});
+
+	it('starts empty when no history is supplied', async () => {
+		const ctx = await createHarness({ documents });
+		const result = await ctx.require<ToolRegistry>('tools').execute({ callId: '1', ...call });
+		expect(result.isError).toBe(false);
+		ctx.dispose();
+	});
+
+	it('never blocks the cheap local tools, however often they repeat', async () => {
+		const ctx = await createHarness({
+			documents,
+			priorCalls: [{ name: 'list_documents', arguments: {} }]
+		});
+		const result = await ctx
+			.require<ToolRegistry>('tools')
+			.execute({ callId: '1', name: 'list_documents', arguments: {} });
+		expect(result.isError).toBe(false);
+		ctx.dispose();
+	});
+})
