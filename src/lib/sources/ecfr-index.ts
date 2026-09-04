@@ -48,6 +48,36 @@ interface TitleIssue {
  */
 const indexes = new Map<number, IndexedSection[]>();
 
+/**
+ * How many headings each word appears in, across every loaded title.
+ *
+ * Heading words are wildly uneven: "deduction" and "business" appear in
+ * hundreds of Title 26 headings, "beverage" in a handful. Without weighting,
+ * a query like "business meal deduction" is dominated by its two useless
+ * words and the one that identifies the provision is drowned out. Rarity is
+ * the correction — the classic inverse-document-frequency idea, computed once
+ * per title from the index we already hold.
+ */
+const documentFrequency = new Map<string, number>();
+let indexedHeadings = 0;
+
+function indexFrequencies(sections: IndexedSection[]): void {
+	for (const section of sections) {
+		indexedHeadings += 1;
+		const words = new Set(section.heading.toLowerCase().match(/[a-z]{3,}/g) ?? []);
+		for (const word of words) {
+			documentFrequency.set(word, (documentFrequency.get(word) ?? 0) + 1);
+		}
+	}
+}
+
+/** Rarity weight for one word, ~1 for a common word and ~3 for a rare one. */
+function rarity(word: string): number {
+	if (!indexedHeadings) return 1;
+	const frequency = documentFrequency.get(word) ?? 0;
+	return Math.min(3, Math.max(0.35, Math.log(indexedHeadings / (1 + frequency)) / 3));
+}
+
 async function issueDateFor(title: number, signal?: AbortSignal): Promise<string> {
 	const payload = await fetchJson<TitleIssue>(`${BASE}/versioner/v1/titles.json`, {
 		source: SOURCE,
@@ -96,6 +126,7 @@ export async function sectionIndex(
 
 	walk(structure, []);
 	indexes.set(title, sections);
+	indexFrequencies(sections);
 	return sections;
 }
 
@@ -121,6 +152,57 @@ export function tokenize(query: string): string[] {
 		.filter((word) => word.length > 2 && !STOPWORDS.has(word));
 }
 
+/**
+ * Accountant vocabulary mapped to the drafter's.
+ *
+ * Section headings use the language of the regulation, which is often not the
+ * language of the person asking. Nobody drafting § 1.274-12 wrote "meal" — the
+ * heading says "food or beverage expenses" — so a search for "business meal
+ * deduction" matches nothing on headings alone, which is precisely the query
+ * an accountant types first.
+ *
+ * These are one-way expansions used only for scoring: a synonym hit counts,
+ * but for less than the word the caller actually used.
+ */
+const SYNONYMS: Record<string, readonly string[]> = {
+	meal: ['food', 'beverage'],
+	meals: ['food', 'beverage'],
+	dining: ['food', 'beverage'],
+	dinner: ['food', 'beverage'],
+	entertainment: ['amusement', 'recreation'],
+	salary: ['compensation', 'wages'],
+	pay: ['compensation', 'wages'],
+	payroll: ['employment', 'wages'],
+	contractor: ['employee', 'employment'],
+	freelancer: ['employee', 'employment'],
+	'1099': ['information', 'returns'],
+	'w-2': ['wages', 'withholding'],
+	writeoff: ['deduction'],
+	'write-off': ['deduction'],
+	deduct: ['deduction', 'deductions'],
+	deductible: ['deduction', 'disallowance'],
+	audit: ['examination'],
+	crypto: ['digital', 'asset'],
+	cryptocurrency: ['digital', 'asset'],
+	bitcoin: ['digital', 'asset'],
+	car: ['automobile', 'vehicle'],
+	mileage: ['automobile', 'transportation'],
+	vehicle: ['automobile', 'transportation'],
+	travel: ['traveling'],
+	gift: ['gifts'],
+	retirement: ['pension', 'annuity'],
+	'401k': ['pension', 'plan'],
+	nonprofit: ['exempt', 'charitable'],
+	charity: ['charitable', 'contributions'],
+	depreciate: ['depreciation'],
+	amortize: ['amortization'],
+	loss: ['losses'],
+	penalty: ['penalties'],
+	'related-party': ['related', 'taxpayers'],
+	offshore: ['foreign'],
+	overseas: ['foreign']
+};
+
 /** Crude but effective stemming for the plural/possessive pairs that dominate. */
 function variants(token: string): string[] {
 	const forms = [token];
@@ -141,15 +223,27 @@ function scoreHeading(heading: string, context: string, tokens: string[], phrase
 
 	for (const token of tokens) {
 		const forms = variants(token);
+		const weight = rarity(token);
+
 		if (forms.some((form) => new RegExp(`\\b${form}\\b`).test(lowerHeading))) {
-			score += 12;
+			score += 12 * weight;
 			matched += 1;
 		} else if (forms.some((form) => lowerHeading.includes(form))) {
-			score += 6;
+			score += 6 * weight;
 			matched += 1;
-		} else if (forms.some((form) => new RegExp(`\\b${form}\\b`).test(lowerContext))) {
-			// A part heading match is weak evidence, but it is evidence.
-			score += 2;
+		} else {
+			const synonym = (SYNONYMS[token] ?? []).find((word) =>
+				new RegExp(`\\b${word}`).test(lowerHeading)
+			);
+			if (synonym) {
+				// The drafter's word for the caller's idea. Real evidence, but the
+				// caller's own word landing is stronger.
+				score += 8 * rarity(synonym);
+				matched += 1;
+			} else if (forms.some((form) => new RegExp(`\\b${form}\\b`).test(lowerContext))) {
+				// A part heading match is weak evidence, but it is evidence.
+				score += 2 * weight;
+			}
 		}
 	}
 

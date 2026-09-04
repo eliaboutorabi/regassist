@@ -21,7 +21,11 @@ const PROBES: [string, number, string][] = [
 	['charitable contributions', 26, '26 CFR § 1.170A-6'],
 	['auditor independence', 17, '17 CFR § 240.10A-2'],
 	['reports of foreign financial accounts', 31, '31 CFR § 1010.350'],
-	['employee benefit plan', 29, '29 CFR § 2510.3-3']
+	['employee benefit plan', 29, '29 CFR § 2510.3-3'],
+	// The caller's vocabulary, not the drafter's. No Title 26 heading contains
+	// the word "meal" — § 1.274-12 says "food or beverage expenses" — so this
+	// query only lands once synonyms and rarity weighting are both working.
+	['business meal deduction', 26, '26 CFR § 1.274-12']
 ];
 
 describe.skipIf(!live)('regulation search quality', () => {
@@ -44,5 +48,28 @@ describe.skipIf(!live)('regulation search quality', () => {
 		const { hits } = await searchRegulations({ query: 'substantiation', title: 26, limit: 12 });
 		const citations = hits.map((hit) => hit.citation);
 		expect(new Set(citations).size).toBe(citations.length);
+	}, 60_000);
+});
+
+describe.skipIf(!live)('heading ranking', () => {
+	it('lets a rare word outrank two common ones', async () => {
+		// "business" and "deduction" appear in hundreds of Title 26 headings;
+		// the words that identify the provision appear in a handful.
+		const { hits } = await searchRegulations({
+			query: 'business meal deduction',
+			title: 26,
+			limit: 3
+		});
+		const top = hits.map((hit) => hit.heading.toLowerCase());
+		expect(top.some((heading) => /meal|food|beverage/.test(heading))).toBe(true);
+	}, 60_000);
+
+	it('finds the provision when the caller uses the profession’s word', async () => {
+		const { hits } = await searchRegulations({
+			query: 'contractor versus employee',
+			title: 26,
+			limit: 4
+		});
+		expect(hits.some((hit) => /employee/i.test(hit.heading))).toBe(true);
 	}, 60_000);
 });
